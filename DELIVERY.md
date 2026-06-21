@@ -73,6 +73,13 @@ service accounts. Access scoping is enforced by the source systems themselves.
 - Frontend: production build clean; live console + connections UI verified in-browser.
 - Live Claude+MCP and the two-tier instant→deep upgrade verified in the UI.
 
+## Sales assets
+
+- **Client one-pager** (shareable web page): https://claude.ai/code/artifact/bd44fe24-90a0-402a-8f46-c037aee1cb19
+  — polished product overview to send to a prospect (problem → solution → security → outcomes).
+- **Demo script**: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — a 5-minute live walkthrough with
+  talking points, the "wow" moments, and objection handling. Runs with zero credentials.
+
 ## Suggested commercial positioning
 
 - **Per-seat SaaS** for sales orgs; value = faster, accurate answers in-meeting + automatic
