@@ -29,7 +29,8 @@ export default function ConnectionsPage() {
       window.history.replaceState({}, "", "/connections");
       setTimeout(() => setToast(null), 2600);
     } else if (q.get("error")) {
-      setToast(`Connection failed: ${q.get("error")}`);
+      const e = q.get("error");
+      setToast(e === "denied" ? "Authorization cancelled" : `Connection failed: ${e}`);
       window.history.replaceState({}, "", "/connections");
       setTimeout(() => setToast(null), 3200);
     }
@@ -40,6 +41,19 @@ export default function ConnectionsPage() {
     setTimeout(() => setToast(null), 2600);
   };
 
+  // Primary flow: OAuth click-through — redirect to the provider's consent page.
+  const connect = async (provider: string) => {
+    setBusy(provider);
+    try {
+      const { authorize_url } = await api.connectUrl(provider);
+      window.location.href = authorize_url;
+    } catch {
+      flash("Couldn't start authorization.");
+      setBusy(null);
+    }
+  };
+
+  // Secondary flow: paste a token (power users / providers without an OAuth app).
   const openForm = (c: Connector) => {
     setOpen(c.provider);
     setForm({ token: "", mcp: c.mcp_default || "", label: "" });
@@ -60,17 +74,6 @@ export default function ConnectionsPage() {
     }
   };
 
-  const oauth = async (provider: string) => {
-    setBusy(provider);
-    try {
-      const { authorize_url } = await api.connectUrl(provider);
-      window.location.href = authorize_url;
-    } catch {
-      flash("OAuth isn't set up for this provider on the server.");
-      setBusy(null);
-    }
-  };
-
   const disconnect = async (provider: string) => {
     setBusy(provider);
     try {
@@ -85,9 +88,9 @@ export default function ConnectionsPage() {
     <main className="container">
       <h1 style={{ fontSize: 28, letterSpacing: "-0.025em", margin: "4px 0 6px" }}>Your connections</h1>
       <p style={{ color: "var(--muted)", maxWidth: 680, lineHeight: 1.6, marginTop: 0 }}>
-        Connect the tools <b>you</b> use with your <b>own</b> access token or key — nothing is configured
-        for you. The copilot reads them live during meetings using your access, so it can only ever see
-        what you can see. Tokens are encrypted and used only on your behalf; disconnect anytime.
+        Click <b>Connect</b> and approve on the provider&apos;s own page — no keys to paste. You authorize
+        with <b>your own</b> account, so the copilot only ever sees what you can. Tokens are encrypted and
+        used only on your behalf; disconnect anytime.
       </p>
 
       <div className="conn-grid">
@@ -119,6 +122,9 @@ export default function ConnectionsPage() {
               ) : (
                 <span className="source-chip" title="Provide an MCP server URL when connecting">🔌 MCP: add URL</span>
               )}
+              {c.status !== "connected" && c.oauth_mode === "live" && (
+                <span className="source-chip" title="A real provider OAuth app is configured">🔒 OAuth</span>
+              )}
             </div>
 
             {open === c.provider && c.status !== "connected" ? (
@@ -149,31 +155,30 @@ export default function ConnectionsPage() {
                     disabled={busy === c.provider || !form.token.trim()}
                     onClick={() => submitToken(c.provider)}
                   >
-                    {busy === c.provider ? "Connecting…" : "Connect"}
+                    {busy === c.provider ? "Connecting…" : "Save token"}
                   </button>
                   <button className="btn sm" onClick={() => setOpen(null)}>Cancel</button>
-                  {c.oauth_available && (
-                    <button className="btn ghost sm" onClick={() => oauth(c.provider)}>
-                      or use OAuth
-                    </button>
-                  )}
                 </div>
               </div>
             ) : (
-              <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+              <div style={{ marginTop: 14 }}>
                 {c.status === "connected" ? (
                   <button className="btn sm" disabled={busy === c.provider} onClick={() => disconnect(c.provider)}>
                     Disconnect
                   </button>
                 ) : (
-                  <>
-                    <button className="btn primary sm" onClick={() => openForm(c)}>Connect</button>
-                    {c.oauth_available && (
-                      <button className="btn ghost sm" disabled={busy === c.provider} onClick={() => oauth(c.provider)}>
-                        OAuth
-                      </button>
-                    )}
-                  </>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button className="btn primary sm" disabled={busy === c.provider} onClick={() => connect(c.provider)}>
+                      {busy === c.provider ? "Opening…" : `Connect ${c.name}`}
+                    </button>
+                    <button
+                      className="linklike"
+                      onClick={() => openForm(c)}
+                      title="Advanced: connect with your own access token instead"
+                    >
+                      use a token
+                    </button>
+                  </div>
                 )}
               </div>
             )}

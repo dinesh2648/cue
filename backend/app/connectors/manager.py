@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import jwt
 from sqlalchemy import select
@@ -61,6 +62,7 @@ def catalog(db: Session, user: User) -> list[dict]:
                 "description": c.description,
                 # OAuth is an optional admin convenience; users can always BYO-connect.
                 "oauth_available": is_configured(key),
+                "oauth_mode": "live" if is_configured(key) else "demo",
                 "mcp_default": mcp_url(key) or "",
                 "has_mcp": bool(mcp_url(key)),
                 "status": conn.status if conn else "disconnected",
@@ -80,12 +82,41 @@ def _get(db: Session, user_id: str, provider: str) -> ConnectorConnection | None
 
 
 # ── Connect / callback / disconnect ──────────────────────────────────────────
-def authorize_url(user: User, provider: str) -> str:
+def authorize_url(user: User, provider: str) -> tuple[str, str]:
+    """Return (authorize_url, mode). 'live' = real provider OAuth (app registered);
+    'demo' = built-in consent screen so the click-through works with zero setup."""
     if provider not in CONNECTORS:
         raise ValueError("unknown provider")
-    if not is_configured(provider):
-        raise ValueError(f"{provider} OAuth client not configured (set {provider.upper()}_CLIENT_ID/SECRET)")
-    return oauth.build_authorize_url(provider, sign_state(user.id, provider))
+    state = sign_state(user.id, provider)
+    if is_configured(provider):
+        return oauth.build_authorize_url(provider, state), "live"
+    return f"{settings.app_base_url}/api/connectors/{provider}/demo-authorize?state={quote(state)}", "demo"
+
+
+def connect_demo(db: Session, provider: str, state: str) -> ConnectorConnection:
+    """Complete the demo consent flow — stores a placeholder connection for that user.
+
+    Demonstrates the exact OAuth click-through UX without registering a real app. Swaps
+    automatically to live provider OAuth once the provider's client id/secret is set.
+    """
+    if provider not in CONNECTORS:
+        raise ValueError("unknown provider")
+    user_id, expected = verify_state(state)
+    if expected != provider:
+        raise ValueError("state/provider mismatch")
+    conn = _get(db, user_id, provider) or ConnectorConnection(user_id=user_id, provider=provider)
+    conn.access_token_enc = encrypt(f"demo-{provider}-token")
+    conn.refresh_token_enc = None
+    conn.expires_at = None
+    conn.mcp_url = mcp_url(provider)
+    conn.account_label = "Demo connection (your account)"
+    conn.scopes = []
+    conn.status = "connected"
+    conn.error = None
+    db.add(conn)
+    db.add(AuditLog(actor=user_id, action="connector.connected.demo", resource=provider))
+    db.commit()
+    return conn
 
 
 async def handle_callback(db: Session, provider: str, code: str, state: str) -> ConnectorConnection:

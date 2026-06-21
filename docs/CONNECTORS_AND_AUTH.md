@@ -60,24 +60,49 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 - The frontend attaches the Clerk token to every API call and the meeting WebSocket;
   the WS also checks meeting ownership.
 
-## 3. Connectors (user-owned — the Anthropic key is the *only* platform secret)
+## 3. Connectors (OAuth click-through — the Anthropic key is the *only* platform secret)
 
-**Every connector is connected by the user themselves; the admin configures nothing.**
-On the Connections page each user clicks **Connect** and supplies *their own* access
-token/key plus an MCP server URL (prefilled with the provider's hosted MCP where one
-exists). The token is stored encrypted under that user, and the agent calls the provider
-**as that user** — so access is scoped to exactly what they can see.
-(`POST /api/connectors/{provider}/connect-token`.)
+**Primary flow = OAuth.** On the Connections page each user clicks **Connect [Provider]**,
+is taken to the provider's own consent page, approves, and is redirected back connected —
+**no keys to paste**. They authorize with *their own* account, so the agent calls the
+provider **as that user** and access is scoped to exactly what they can see. The token is
+stored encrypted under that user.
 
-### Optional: admin OAuth (convenience only)
+```
+GET  /api/connectors/{provider}/connect      → { authorize_url, mode }   (redirect the browser here)
+GET  /api/connectors/{provider}/callback     → exchanges code, stores token, returns to the UI
+```
 
-If you'd rather offer a one-click OAuth flow for a provider, register an OAuth app and set
-its client id/secret — an extra **OAuth** button then appears on that card. This is purely
-optional; the BYO-token path always works without it. Redirect URI:
+### One-time per-provider setup (admin, to enable *real* provider OAuth)
+
+OAuth requires registering your app **once** with each provider (this yields a client
+id/secret — *not* a per-user key; users still authorize their own accounts). Set:
+
+```
+HUBSPOT_CLIENT_ID / HUBSPOT_CLIENT_SECRET     (and NOTION_*, GOOGLE_*, LINKEDIN_*)
+```
+
+Redirect URI to register with each provider:
 
 ```
 {APP_BASE_URL}/api/connectors/{provider}/callback
 ```
+
+When a provider's client id is set, `mode` is `live` and **Connect** opens the real
+provider consent screen.
+
+### Zero-setup demo consent (so the click-through works immediately)
+
+If a provider's client id isn't set yet, `mode` is `demo`: **Connect** opens a built-in
+consent screen (`/api/connectors/{provider}/demo-authorize`) that mirrors the real OAuth
+UX and completes the connection — so you can demo and test the exact flow before
+registering any apps. It swaps to real provider OAuth automatically once the client id is set.
+
+### Fallback: bring your own token
+
+A small **use a token** link lets power users (or providers where they hold a personal
+access token) connect by pasting a token + MCP URL instead
+(`POST /api/connectors/{provider}/connect-token`).
 
 | Provider | Env | MCP server |
 |---|---|---|

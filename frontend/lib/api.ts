@@ -58,7 +58,7 @@ export const api = {
 
   // Connectors
   connectors: () => request<Connector[]>("/api/connectors"),
-  connectUrl: (provider: string) => request<{ authorize_url: string }>(`/api/connectors/${provider}/connect`),
+  connectUrl: (provider: string) => request<{ authorize_url: string; mode: string }>(`/api/connectors/${provider}/connect`),
   connectToken: (provider: string, token: string, mcp_url?: string, account_label?: string) =>
     request<{ ok: boolean; status: string; has_mcp: boolean }>(`/api/connectors/${provider}/connect-token`, {
       method: "POST",

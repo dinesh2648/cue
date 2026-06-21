@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import logging
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..connectors import manager
+from ..connectors.registry import CONNECTORS
 from ..db import get_db
 from ..models import User
 from ..security.auth import get_current_user
@@ -51,11 +54,63 @@ def connect_token(
 
 @router.get("/{provider}/connect")
 def connect(provider: str, user: User = Depends(get_current_user)) -> dict:
-    """Optional OAuth path (only when an admin has registered the provider's OAuth client)."""
+    """Primary path: returns the provider's OAuth consent URL (the client redirects to it).
+
+    `mode` is 'live' (real provider OAuth) or 'demo' (built-in consent screen, no app setup).
+    """
     try:
-        return {"authorize_url": manager.authorize_url(user, provider)}
+        url, mode = manager.authorize_url(user, provider)
+        return {"authorize_url": url, "mode": mode}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/{provider}/demo-authorize", response_class=HTMLResponse)
+def demo_authorize(provider: str, state: str = Query(...)) -> HTMLResponse:
+    """A simulated provider consent screen so the OAuth click-through works with zero setup."""
+    if provider not in CONNECTORS:
+        return HTMLResponse("Unknown provider", status_code=404)
+    c = CONNECTORS[provider]
+    approve = f"{settings.app_base_url}/api/connectors/{provider}/callback?demo=1&state={quote(state)}"
+    deny = f"{settings.frontend_url}/connections?error=denied"
+    scopes = "".join(f"<li>Read your {c.name} {s}</li>" for s in ["data the rep can access"])
+    html = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize Sales Copilot · {c.name}</title>
+<style>
+  body{{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    background:#0b0f1a;color:#e8edf7;display:grid;place-items:center;min-height:100vh;padding:24px}}
+  .box{{background:#151b2d;border:1px solid #26304a;border-radius:18px;max-width:420px;width:100%;
+    padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.5)}}
+  .row{{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:18px}}
+  .ic{{width:52px;height:52px;border-radius:13px;display:grid;place-items:center;font-size:26px;background:#1b2336;border:1px solid #26304a}}
+  .arrow{{color:#67738f;font-size:20px}}
+  .ic.app{{background:linear-gradient(135deg,#6d7cff,#a855f7);border:none}}
+  h1{{font-size:18px;text-align:center;margin:0 0 6px;letter-spacing:-.01em}}
+  p.s{{text-align:center;color:#9aa7c4;font-size:13.5px;margin:0 0 18px;line-height:1.5}}
+  .scopes{{background:#0f1422;border:1px solid #26304a;border-radius:11px;padding:14px 16px;margin:0 0 20px}}
+  .scopes b{{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#67738f}}
+  ul{{margin:8px 0 0;padding-left:18px;color:#cdd6ea;font-size:13.5px;line-height:1.7}}
+  .btns{{display:flex;gap:10px}}
+  a.btn{{flex:1;text-align:center;text-decoration:none;padding:12px;border-radius:11px;font-weight:700;font-size:14px}}
+  a.approve{{background:linear-gradient(135deg,#6d7cff,#a855f7);color:#fff}}
+  a.deny{{background:#1b2336;border:1px solid #313c5c;color:#cdd6ea}}
+  .note{{text-align:center;color:#67738f;font-size:11.5px;margin-top:16px}}
+</style></head><body>
+  <div class="box">
+    <div class="row"><span class="ic">{c.icon}</span><span class="arrow">←</span><span class="ic app">🛰️</span></div>
+    <h1>Sales Copilot wants to access your {c.name}</h1>
+    <p class="s">Connecting as <b>you</b> — the copilot will only ever read what your {c.name}
+      account can already see. You can disconnect anytime.</p>
+    <div class="scopes"><b>This will allow Sales Copilot to</b><ul>{scopes}</ul></div>
+    <div class="btns">
+      <a class="btn deny" href="{deny}">Cancel</a>
+      <a class="btn approve" href="{approve}">Allow access</a>
+    </div>
+    <div class="note">Demo authorization — simulates {c.name}'s real OAuth consent screen.</div>
+  </div>
+</body></html>"""
+    return HTMLResponse(html)
 
 
 @router.get("/{provider}/callback")
@@ -64,14 +119,20 @@ async def callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
+    demo: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """OAuth redirect target (browser). Exchanges the code, stores tokens, returns to the UI."""
+    """OAuth redirect target (browser). Exchanges the code, stores the token, returns to the UI."""
     base = f"{settings.frontend_url}/connections"
-    if error or not code or not state:
-        return RedirectResponse(f"{base}?error={error or 'missing_code'}")
+    if error or not state:
+        return RedirectResponse(f"{base}?error={error or 'missing_state'}")
     try:
-        await manager.handle_callback(db, provider, code, state)
+        if demo == "1":
+            manager.connect_demo(db, provider, state)
+        else:
+            if not code:
+                return RedirectResponse(f"{base}?error=missing_code")
+            await manager.handle_callback(db, provider, code, state)
         return RedirectResponse(f"{base}?connected={provider}")
     except Exception as exc:  # pragma: no cover - provider/network errors
         log.warning("oauth callback failed provider=%s: %s", provider, exc)

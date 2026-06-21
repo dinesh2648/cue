@@ -55,6 +55,7 @@ export interface Connector {
   category: string;
   description: string;
   oauth_available: boolean;
+  oauth_mode: "live" | "demo";
   mcp_default: string;
   has_mcp: boolean;
   status: "connected" | "disconnected" | "error";
