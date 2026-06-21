@@ -1,0 +1,92 @@
+"""Application settings. Sensible offline/dev defaults; real integrations via env."""
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    app_name: str = "AI Sales Meeting Copilot"
+    version: str = "0.2.0"
+
+    # URLs (used for OAuth redirects)
+    app_base_url: str = "http://localhost:8000"
+    frontend_url: str = "http://localhost:3000"
+
+    # Storage
+    database_url: str = "sqlite:///./copilot.db"
+
+    # LLM / embeddings (all optional — offline fallback otherwise)
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-6"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+    embedding_model: str = "text-embedding-3-small"
+    # Agent engine: "auto" picks messages_mcp when an Anthropic key is set, else offline.
+    agent_engine: str = "auto"  # auto | messages_mcp | agent_sdk | offline
+
+    # Vector DB
+    qdrant_url: str | None = None
+
+    # Auth (Clerk). When unset, the app runs in single-user DEV mode.
+    clerk_secret_key: str | None = None
+    clerk_publishable_key: str | None = None
+    clerk_jwks_url: str | None = None
+    clerk_issuer: str | None = None
+
+    # Per-user OAuth token encryption (Fernet). Auto-generated for dev if unset.
+    token_encryption_key: str | None = None
+
+    # Realtime fan-out
+    redis_url: str | None = None
+
+    # SLAs / behaviour
+    response_sla_seconds: float = 3.0
+    cors_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def llm_provider(self) -> str:
+        if self.anthropic_api_key:
+            return "anthropic"
+        if self.openai_api_key:
+            return "openai"
+        return "offline"
+
+    @property
+    def embeddings_enabled(self) -> bool:
+        return bool(self.openai_api_key)
+
+    @property
+    def dev_mode(self) -> bool:
+        """No Clerk configured → single seeded dev user, no JWT required."""
+        return not self.clerk_secret_key
+
+    @property
+    def resolved_agent_engine(self) -> str:
+        if self.agent_engine != "auto":
+            return self.agent_engine
+        return "messages_mcp" if self.anthropic_api_key else "offline"
+
+    @property
+    def use_agent_sdk(self) -> bool:
+        return self.resolved_agent_engine == "agent_sdk"
+
+    def connector_env(self, provider: str, key: str) -> str | None:
+        """Read a per-connector env var, e.g. connector_env('hubspot', 'CLIENT_ID')."""
+        return os.getenv(f"{provider.upper()}_{key.upper()}")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

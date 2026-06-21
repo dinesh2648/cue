@@ -1,0 +1,31 @@
+# Optional production-stack services from the PRD. The app runs WITHOUT these
+# (SQLite + in-process vector + offline LLM). Bring them up to exercise the full
+# architecture, then point backend/.env at them.
+#
+#   docker compose up -d
+#   # backend/.env:
+#   #   DATABASE_URL=postgresql+psycopg://copilot:copilot@localhost:5432/copilot
+#   #   QDRANT_URL=http://localhost:6333
+#   #   REDIS_URL=redis://localhost:6379
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: copilot
+      POSTGRES_DB: copilot
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: ["qdrantdata:/qdrant/storage"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+volumes:
+  pgdata:
+  qdrantdata:
