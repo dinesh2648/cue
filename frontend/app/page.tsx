@@ -56,6 +56,9 @@ export default function Home() {
     <main className="container">
       <section className="hero">
         <div>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--accent)", marginBottom: 12 }}>
+            Sales pack
+          </div>
           <h1>
             Your real-time <span className="grad">AI Sales Engineer</span>, on every call.
           </h1>

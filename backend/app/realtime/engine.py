@@ -14,13 +14,10 @@ import time
 
 from sqlalchemy import func, select
 
-from ..agent import claude_agent, claude_sdk
-from ..agent.intent import detect_intent
-from ..agent.pipeline import pipeline
 from ..connectors.manager import active_mcp_servers
 from ..db import SessionLocal
-from ..integrations import hubspot
 from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment
+from ..packs.registry import get_pack
 from .manager import manager
 from .simulator import get_scenario
 
@@ -32,30 +29,6 @@ _running: set[str] = set()
 def _doc_catalog(db) -> list[dict]:
     docs = db.scalars(select(KnowledgeDoc)).all()
     return [{"id": d.id, "title": d.title, "doc_type": d.doc_type, "url": d.url} for d in docs]
-
-
-async def _fast_answer(db, meeting, text: str, doc_catalog: list[dict]) -> dict:
-    """Tier 1 (<5s SLA): instant grounded answer from local CRM + retrieval."""
-    crm_context = hubspot.company_context(db, meeting.crm_company_id)
-    result = await pipeline.ainvoke(
-        {"query_text": text, "crm_context": crm_context, "doc_catalog": doc_catalog}
-    )
-    return {
-        "answer": result.get("answer", ""),
-        "evidence": result.get("evidence", []),
-        "sources": result.get("sources", []),
-        "confidence": result.get("confidence", 0.0),
-        "actions": result.get("actions", []),
-    }
-
-
-async def _deep_answer(db, meeting, text: str, intent_type: str, servers: list[dict]) -> dict | None:
-    """Tier 2: full Claude agentic loop over MCP tools (richer, ~10-15s)."""
-    if claude_sdk.available():
-        return await claude_sdk.run_turn(text, intent_type, meeting.crm_company_id)
-    if claude_agent.available() and servers:
-        return await claude_agent.run_turn(text, intent_type, servers)
-    return None
 
 
 async def process_utterance(
@@ -91,8 +64,10 @@ async def process_utterance(
         if role != "customer":
             return
 
-        # ── Intent (FR-003) ──────────────────────────────────────────────────
-        intent_res = detect_intent(text)
+        pack = get_pack(meeting.pack)
+
+        # ── Intent (FR-003) — pack-specific taxonomy ─────────────────────────
+        intent_res = pack.detect(text)
         await manager.broadcast(
             meeting_id,
             {
@@ -114,11 +89,13 @@ async def process_utterance(
         servers = (
             await active_mcp_servers(db, meeting.owner_user_id) if meeting.owner_user_id else []
         )
-        deep_will_run = claude_sdk.available() or (claude_agent.available() and bool(servers))
+        deep_will_run = pack.has_deep(servers)
 
         # Tier 1 — instant grounded answer (the SLA-critical path).
         t0 = time.perf_counter()
-        fast = await _fast_answer(db, meeting, text, doc_catalog)
+        fast = await pack.fast_answer(
+            db=db, meeting=meeting, text=text, intent=intent_res, doc_catalog=doc_catalog
+        )
         fast_latency = int((time.perf_counter() - t0) * 1000)
 
         intent_row = Intent(
@@ -163,7 +140,9 @@ async def process_utterance(
         # Tier 2 — deepen with the Claude agentic loop, then upgrade the card in place.
         if deep_will_run:
             t1 = time.perf_counter()
-            deep = await _deep_answer(db, meeting, text, intent_res.intent_type, servers)
+            deep = await pack.deep_answer(
+                db=db, meeting=meeting, text=text, intent=intent_res, servers=servers
+            )
             deep_latency = int((time.perf_counter() - t1) * 1000)
             if deep:
                 sugg.answer = deep["answer"]

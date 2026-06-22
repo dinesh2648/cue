@@ -27,3 +27,14 @@ def auth_config() -> dict:
 @router.get("/me")
 def me(user: User = Depends(get_current_user)) -> dict:
     return {"id": user.id, "email": user.email, "name": user.name, "org_id": user.org_id, "role": user.role}
+
+
+@router.get("/packs")
+def packs() -> list[dict]:
+    """Available Copilot Packs (verticals). Sales is the shipped pilot."""
+    from ..packs.registry import DEFAULT_PACK, list_packs
+
+    return [
+        {"key": m.key, "name": m.name, "persona": m.persona, "description": m.description, "default": m.key == DEFAULT_PACK}
+        for m in list_packs()
+    ]

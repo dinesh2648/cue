@@ -7,6 +7,7 @@ export interface Meeting {
   rep_name: string;
   status: "scheduled" | "live" | "ended";
   crm_company_id: string | null;
+  pack: string;
   created_at: string;
   ended_at: string | null;
 }

@@ -1,10 +1,11 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Providers from "@/components/Providers";
+import { BRAND, TAGLINE } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "AI Sales Meeting Copilot",
-  description: "Real-time virtual Sales Engineer for customer meetings",
+  title: `${BRAND} — ${TAGLINE}`,
+  description: "Real-time AI meeting copilot platform — a pack for every team (Sales, and more)",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

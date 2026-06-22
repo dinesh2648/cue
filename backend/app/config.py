@@ -10,8 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "AI Sales Meeting Copilot"
-    version: str = "0.2.0"
+    app_name: str = "Cue"  # platform name; Sales is one Copilot Pack
+    version: str = "0.3.0"
 
     # URLs (used for OAuth redirects)
     app_base_url: str = "http://localhost:8000"

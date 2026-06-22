@@ -30,6 +30,7 @@ class Meeting(Base):
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled|live|ended
     crm_company_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     owner_user_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    pack: Mapped[str] = mapped_column(String(32), default="sales")  # which Copilot Pack drives this meeting
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

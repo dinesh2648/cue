@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { ClerkProvider, SignedIn, SignedOut, SignIn, UserButton, useAuth } from "@clerk/nextjs";
 import { setTokenGetter } from "@/lib/api";
+import { BRAND, TAGLINE } from "@/lib/brand";
 
 const PK = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -22,8 +23,8 @@ function Header({ withUser = false }: { withUser?: boolean }) {
       <Link href="/" className="brand">
         <span className="logo">🛰️</span>
         <span>
-          Sales Copilot
-          <small>Real-time AI Sales Engineer</small>
+          {BRAND}
+          <small>{TAGLINE}</small>
         </span>
       </Link>
       <span className="spacer" />

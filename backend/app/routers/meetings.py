@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..agent.summary import generate_summary
 from ..db import get_db
+from ..packs.registry import get_pack
 from ..integrations import hubspot
 from ..models import (
     AuditLog,
@@ -75,6 +75,7 @@ def create_meeting(
         customer_contact=body.customer_contact,
         rep_name=body.rep_name,
         crm_company_id=body.crm_company_id,
+        pack=body.pack,
         owner_user_id=user.id,
     )
     db.add(meeting)
@@ -234,7 +235,7 @@ async def end_meeting(meeting_id: str, db: Session = Depends(get_db)) -> Meeting
     suggestion_rows = list(db.scalars(select(Suggestion).where(Suggestion.meeting_id == meeting_id)))
     crm = hubspot.company_context(db, meeting.crm_company_id)
 
-    summary_data = await generate_summary(
+    summary_data = await get_pack(meeting.pack).summarize(
         meeting={
             "customer_company": meeting.customer_company,
             "customer_contact": meeting.customer_contact,

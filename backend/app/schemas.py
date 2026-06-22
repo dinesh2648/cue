@@ -15,6 +15,7 @@ class MeetingCreate(BaseModel):
     customer_contact: str = ""
     rep_name: str = ""
     crm_company_id: str | None = None
+    pack: str = "sales"
     scenario: str | None = None  # name of a seeded simulator scenario
 
 
@@ -28,6 +29,7 @@ class MeetingOut(BaseModel):
     rep_name: str
     status: str
     crm_company_id: str | None
+    pack: str
     created_at: datetime
     ended_at: datetime | None
 

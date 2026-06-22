@@ -128,6 +128,9 @@ export default function MeetingConsole() {
           </h2>
           <div style={{ color: "var(--faint)", fontSize: 13, marginTop: 3 }}>
             {meeting?.customer_company} · {meeting?.customer_contact} · with {meeting?.rep_name}
+            {meeting?.pack ? (
+              <span style={{ textTransform: "capitalize" }}> · {meeting.pack} pack</span>
+            ) : null}
           </div>
         </div>
         <span className={`pill ${status === "transcript_complete" ? "scheduled" : status}`}>
