@@ -35,10 +35,13 @@ Open **http://localhost:3000 → Start demo meeting**. Watch the copilot work a 
 **Rollout scope: Sales only** (`ENABLED_PACKS=sales`). One-command launch:
 
 ```bash
-docker compose up --build      # backend :8000 + frontend :3000 (zero-cred pilot)
+cp .env.example .env           # edit keys (or leave blank for the zero-cred pilot)
+./scripts/setup.sh             # build + start + health-check + migrate  → :3000 / :8000
 ```
 
-Full go-live steps (env, OAuth apps, SSO, Recall.ai, smoke test, rollback):
+Day-2 ops: `./scripts/deploy.sh` (redeploy after `git pull`) · `./scripts/restart.sh` ·
+`./scripts/logs.sh` · `./scripts/migrate.sh` · `./scripts/stop.sh`.
+Full VM guide: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** · go-live checklist:
 **[docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md)**. Manual run:
 
 ```bash
