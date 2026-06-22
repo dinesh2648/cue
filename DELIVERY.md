@@ -109,6 +109,11 @@ service accounts. Access scoping is enforced by the source systems themselves.
 
 ## Roadmap (next increments)
 
-Real per-user CRM write-back via the employee's HubSpot MCP · Salesforce/Slack/Jira
-connectors (one registry entry each) · MCP-native OAuth (zero token-pasting) ·
-Phase-2 battlecards / renewal-risk / buying-signal detection on the same agent graph.
+Near-term (Sales): real per-user CRM write-back via the employee's HubSpot MCP ·
+MCP-native OAuth (zero token-pasting) · battlecards / renewal-risk / buying-signal detection.
+
+**Strategic — multi-vertical platform:** Sales is the pilot; the substrate is designed to
+extend to **Developer, Product, CSM, Support** packs, each with its own agentic flow
+(e.g. Developer: capture requirements → Jira → scan repo → build → verify → PR, with
+*approve-then-act* gates). Full implementation-ready spec + sequenced roadmap in
+[docs/PLATFORM_EXTENSIBILITY.md](docs/PLATFORM_EXTENSIBILITY.md).
