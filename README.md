@@ -60,6 +60,10 @@ Add keys to light up real Claude + per-employee connectors — see
 
 ## Quick start
 
+> 📖 **One complete setup guide — prerequisites, every env var, and step-by-step for each
+> connector/integration: [SETUP.md](SETUP.md).**
+
+
 ```bash
 # 1. Backend  (terminal 1)
 cd backend
