@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import type { Meeting, Metrics } from "@/lib/types";
 
 const PIPELINE = [
@@ -23,6 +23,7 @@ export default function Home() {
   const [recallEnabled, setRecallEnabled] = useState(false);
   const [meetUrl, setMeetUrl] = useState("");
   const [joining, setJoining] = useState(false);
+  const [limitMsg, setLimitMsg] = useState<string | null>(null);
 
   useEffect(() => {
     api.listMeetings().then(setMeetings).catch(() => {});
@@ -37,17 +38,20 @@ export default function Home() {
     try {
       const m = await api.joinLive(meetUrl.trim());
       router.push(`/meeting/${m.id}`);
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) setLimitMsg(e.detail);
       setJoining(false);
     }
   };
 
   const startDemo = async () => {
     setStarting(true);
+    setLimitMsg(null);
     try {
       const m = await api.createDemo();
       router.push(`/meeting/${m.id}?autostart=1`);
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) setLimitMsg(e.detail);
       setStarting(false);
     }
   };
@@ -84,6 +88,16 @@ export default function Home() {
               </span>
             )}
           </div>
+
+          {limitMsg && (
+            <div className="crm-banner" style={{ background: "rgba(251,191,36,0.10)", borderColor: "#5c4a1f", color: "#fcd34d", marginTop: 16 }}>
+              <span style={{ fontSize: 18 }}>⚡</span>
+              <div>
+                {limitMsg}{" "}
+                <Link href="/settings" style={{ textDecoration: "underline", fontWeight: 700 }}>Upgrade →</Link>
+              </div>
+            </div>
+          )}
 
           {metrics && (
             <div className="meta-strip">

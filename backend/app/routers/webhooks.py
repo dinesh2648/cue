@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Query, Request
 from sqlalchemy.orm import Session
 
+from ..billing import service as billing_service
 from ..db import SessionLocal
 from ..integrations import recall
 from ..models import Meeting
@@ -41,3 +42,15 @@ async def recall_webhook(request: Request, meeting_id: str = Query(...)) -> dict
 
     await process_utterance(meeting_id, seg["speaker"], role, seg["text"])
     return {"ok": True}
+
+
+@router.post("/stripe")
+async def stripe_webhook(request: Request) -> dict:
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    db: Session = SessionLocal()
+    try:
+        handled = billing_service.handle_webhook(db, payload, sig)
+    finally:
+        db.close()
+    return {"ok": handled}

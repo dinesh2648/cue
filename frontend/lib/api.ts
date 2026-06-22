@@ -1,4 +1,14 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo } from "./types";
+
+export class ApiError extends Error {
+  status: number;
+  detail: string;
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.status = status;
+    this.detail = detail;
+  }
+}
 
 export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export const WS_BASE = API.replace(/^http/, "ws");
@@ -25,7 +35,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API}${path}`, { ...init, headers });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      /* non-JSON error */
+    }
+    throw new ApiError(res.status, detail);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -63,6 +82,13 @@ export const api = {
     request<{ status: string; llm_provider: string; agent_engine: string; knowledge_backend: string; dev_mode: boolean }>(
       "/health"
     ),
+
+  // Billing / org (SaaS)
+  billing: () => request<BillingInfo>("/api/billing"),
+  checkout: (plan: string) =>
+    request<{ url: string; live: boolean }>("/api/billing/checkout", { method: "POST", body: JSON.stringify({ plan }) }),
+  portal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
+  org: () => request<OrgInfo>("/api/org"),
 
   // Connectors
   connectors: () => request<Connector[]>("/api/connectors"),

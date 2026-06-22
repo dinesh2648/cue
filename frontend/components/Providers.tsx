@@ -31,6 +31,9 @@ function Header({ withUser = false }: { withUser?: boolean }) {
       <Link href="/connections" className="btn ghost sm">
         🔌 Connections
       </Link>
+      <Link href="/settings" className="btn ghost sm">
+        ⚙ Settings
+      </Link>
       {withUser && <UserButton afterSignOutUrl="/" />}
     </header>
   );

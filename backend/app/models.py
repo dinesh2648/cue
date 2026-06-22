@@ -30,6 +30,7 @@ class Meeting(Base):
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled|live|ended
     crm_company_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     owner_user_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)  # tenant (for usage/billing)
     pack: Mapped[str] = mapped_column(String(32), default="sales")  # which Copilot Pack drives this meeting
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -148,6 +149,20 @@ class CRMSyncRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Organization(Base):
+    """Tenant / account — the billing + data boundary for a customer."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # Clerk org id or org_<user>
+    name: Mapped[str] = mapped_column(String(255), default="Workspace")
+    plan: Mapped[str] = mapped_column(String(24), default="free")  # free|pro|enterprise
+    seats: Mapped[int] = mapped_column(Integer, default=1)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class User(Base):
     """An employee. `id` is the Clerk user id (or a dev id in DEV mode)."""
 
@@ -156,8 +171,8 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), default="")
     name: Mapped[str] = mapped_column(String(255), default="")
-    org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
-    role: Mapped[str] = mapped_column(String(32), default="sales_rep")
+    org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=True)
+    role: Mapped[str] = mapped_column(String(32), default="owner")  # owner|admin|member
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

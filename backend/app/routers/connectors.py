@@ -10,12 +10,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..billing import service as billing_service
 from ..config import settings
 from ..connectors import manager
 from ..connectors.registry import CONNECTORS
 from ..db import get_db
-from ..models import User
-from ..security.auth import get_current_user
+from ..models import Organization, User
+from ..security.auth import get_current_org, get_current_user
+
+_CONN_LIMIT_MSG = "Connector limit reached for your plan. Upgrade to connect more tools."
 
 log = logging.getLogger("copilot.connectors.api")
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
@@ -37,12 +40,15 @@ def connect_token(
     provider: str,
     body: TokenConnectRequest,
     user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),
 ) -> dict:
     """Bring-your-own connection: the user connects with their own token (+ optional MCP URL).
 
     The default self-service path — no admin OAuth-client registration needed.
     """
+    if manager.get_connection(db, user.id, provider) is None and not billing_service.within_connector_limit(db, user.id, org):
+        raise HTTPException(402, _CONN_LIMIT_MSG)
     try:
         conn = manager.connect_with_token(
             db, user.id, provider, body.token, body.mcp_url, body.account_label
@@ -53,11 +59,18 @@ def connect_token(
 
 
 @router.get("/{provider}/connect")
-def connect(provider: str, user: User = Depends(get_current_user)) -> dict:
+def connect(
+    provider: str,
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+) -> dict:
     """Primary path: returns the provider's OAuth consent URL (the client redirects to it).
 
     `mode` is 'live' (real provider OAuth) or 'demo' (built-in consent screen, no app setup).
     """
+    if manager.get_connection(db, user.id, provider) is None and not billing_service.within_connector_limit(db, user.id, org):
+        raise HTTPException(402, _CONN_LIMIT_MSG)
     try:
         url, mode = manager.authorize_url(user, provider)
         return {"authorize_url": url, "mode": mode}

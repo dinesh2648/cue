@@ -59,6 +59,9 @@ docker compose up --build           # backend :8000 + frontend :3000 (SQLite, pi
 ```
 Or: backend `uvicorn app.main:app --host 0.0.0.0 --port 8000`; frontend `npm ci && npm run build && npm start` (or Vercel). Set `NEXT_PUBLIC_API_URL` to the public backend URL.
 
+- [ ] **Postgres schema:** run `alembic upgrade head` (SQLite auto-creates tables; Postgres uses migrations).
+- [ ] **Billing (optional):** set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO/ENTERPRISE`, `STRIPE_WEBHOOK_SECRET`; register the webhook `{APP_BASE_URL}/api/webhooks/stripe`. Without it, plans work in dev mode (upgrades apply directly). Free plan: 5 meetings/mo, 2 connectors.
+
 ## 7. Smoke test (post-deploy)
 
 - [ ] `GET /health` → ok; `GET /api/packs` → **only `sales`**.

@@ -44,6 +44,18 @@ class Settings(BaseSettings):
     # Per-user OAuth token encryption (Fernet). Auto-generated for dev if unset.
     token_encryption_key: str | None = None
 
+    # Billing (Stripe). Free plan works with no keys; paid tiers activate when set.
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_price_pro: str | None = None
+    stripe_price_enterprise: str | None = None
+
+    # Observability
+    sentry_dsn: str | None = None
+
+    # Rate limiting (per client IP, per minute)
+    rate_limit_per_minute: int = 240
+
     # Realtime fan-out
     redis_url: str | None = None
 
@@ -75,6 +87,11 @@ class Settings(BaseSettings):
     def dev_mode(self) -> bool:
         """No Clerk configured → single seeded dev user, no JWT required."""
         return not self.clerk_secret_key
+
+    @property
+    def billing_enabled(self) -> bool:
+        """Real Stripe billing on. Off → dev free-plan mode (upgrades applied directly)."""
+        return bool(self.stripe_secret_key)
 
     @property
     def resolved_agent_engine(self) -> str:

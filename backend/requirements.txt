@@ -8,6 +8,7 @@ httpx>=0.27
 
 # Storage (SQLite works out of the box; install psycopg for Postgres)
 SQLAlchemy>=2.0
+alembic>=1.13                 # database migrations (production schema management)
 # psycopg[binary]>=3.2        # uncomment for PostgreSQL
 
 # Real LLM + agent runtime, auth, and per-user token encryption

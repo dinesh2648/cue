@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..actions import service as action_service
+from ..billing import service as billing_service
 from ..config import settings
 from ..db import get_db
 from ..packs.registry import get_pack
@@ -19,6 +20,7 @@ from ..models import (
     Intent,
     Meeting,
     MeetingSummary,
+    Organization,
     Suggestion,
     TranscriptSegment,
     User,
@@ -34,8 +36,10 @@ from ..schemas import (
     SuggestionOut,
     SummaryOut,
 )
-from ..security.auth import get_current_user
+from ..security.auth import get_current_org, get_current_user
 from ..seed.data import COMPANY_ID
+
+_LIMIT_MSG = "Monthly meeting limit reached for your plan. Upgrade to keep going."
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
 
@@ -68,8 +72,13 @@ def _get(db: Session, meeting_id: str) -> Meeting:
 
 @router.post("", response_model=MeetingOut)
 def create_meeting(
-    body: MeetingCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    body: MeetingCreate,
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
 ) -> Meeting:
+    if not billing_service.within_meeting_limit(db, org):
+        raise HTTPException(402, _LIMIT_MSG)
     # Sales-first rollout: only enabled packs are accepted; others fall back to default.
     pack = body.pack if body.pack in settings.enabled_pack_list else "sales"
     meeting = Meeting(
@@ -81,6 +90,7 @@ def create_meeting(
         crm_company_id=body.crm_company_id,
         pack=pack,
         owner_user_id=user.id,
+        org_id=org.id,
     )
     db.add(meeting)
     db.add(AuditLog(actor=user.id, action="meeting.created", resource=meeting.id))
@@ -90,8 +100,12 @@ def create_meeting(
 
 @router.post("/demo", response_model=MeetingOut)
 def create_demo_meeting(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
 ) -> Meeting:
+    if not billing_service.within_meeting_limit(db, org):
+        raise HTTPException(402, _LIMIT_MSG)
     meeting = Meeting(
         title="Northwind Trading — Expansion Call",
         platform="google_meet",
@@ -100,6 +114,7 @@ def create_demo_meeting(
         rep_name="Alex Rivera",
         crm_company_id=COMPANY_ID,
         owner_user_id=user.id,
+        org_id=org.id,
     )
     db.add(meeting)
     db.add(AuditLog(actor=user.id, action="meeting.created.demo", resource=meeting.id))
@@ -109,13 +124,18 @@ def create_demo_meeting(
 
 @router.post("/live", response_model=MeetingOut)
 async def create_live_meeting(
-    body: LiveMeetingRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    body: LiveMeetingRequest,
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
 ) -> Meeting:
     """Create a meeting and dispatch a Recall.ai bot into a real Google Meet/Zoom/Teams call."""
     from ..integrations import recall
 
     if not recall.enabled():
         raise HTTPException(400, "Recall.ai not configured (set RECALL_API_KEY) — use the demo meeting instead.")
+    if not billing_service.within_meeting_limit(db, org):
+        raise HTTPException(402, _LIMIT_MSG)
 
     meeting = Meeting(
         title=body.title,
@@ -125,6 +145,7 @@ async def create_live_meeting(
         rep_name=body.rep_name or user.name,
         crm_company_id=body.crm_company_id,
         owner_user_id=user.id,
+        org_id=org.id,
         status="live",
     )
     db.add(meeting)

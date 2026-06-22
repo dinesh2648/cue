@@ -36,7 +36,9 @@ def get_db() -> Iterator[Session]:
 
 
 def init_db() -> None:
-    """Create all tables. Import models for side-effect registration."""
+    """Create tables for local SQLite dev. Production (Postgres) uses Alembic migrations
+    (`alembic upgrade head`) — see backend/alembic/."""
     from . import models  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
+    if settings.database_url.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)

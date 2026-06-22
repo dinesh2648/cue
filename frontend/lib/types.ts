@@ -100,6 +100,44 @@ export interface ProposedAction {
   decided_at: string | null;
 }
 
+export interface PlanInfo {
+  key: string;
+  name: string;
+  price_monthly: number | null;
+  meetings_per_month: number | null;
+  max_connectors: number | null;
+  seats: number | null;
+  recall: boolean;
+  sso: boolean;
+  blurb: string;
+}
+
+export interface Usage {
+  plan: string;
+  plan_name: string;
+  meetings_used: number;
+  meetings_limit: number | null;
+  connectors_used: number;
+  connectors_limit: number | null;
+  seats: number;
+  features: { recall: boolean; sso: boolean };
+  billing_enabled: boolean;
+}
+
+export interface BillingInfo {
+  org: { id: string; name: string; plan: string; role: string };
+  usage: Usage;
+  plans: PlanInfo[];
+}
+
+export interface OrgInfo {
+  id: string;
+  name: string;
+  plan: string;
+  your_role: string;
+  members: { id: string; email: string; name: string; role: string }[];
+}
+
 export type WSEvent =
   | { type: "transcript"; data: Segment }
   | { type: "intent"; data: { intent_type: string; family: string; confidence: number; query_text: string; actionable: boolean } }

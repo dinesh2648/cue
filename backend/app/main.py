@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
 from .config import settings
@@ -14,9 +16,17 @@ from .knowledge.store import index
 from .models import KnowledgeDoc, Meeting, Suggestion
 from .realtime.engine import process_utterance
 from .realtime.manager import manager
-from .routers import account, actions, connectors, crm, knowledge, meetings, webhooks
+from .routers import account, actions, billing, connectors, crm, knowledge, meetings, webhooks
 from .security.auth import user_from_token
 from .seed.data import seed_if_empty
+
+if settings.sentry_dsn:  # optional error tracking
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.1)
+    except ImportError:
+        logging.getLogger("copilot").warning("SENTRY_DSN set but sentry-sdk not installed")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("copilot")
@@ -57,7 +67,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_rate_window: dict[str, tuple[int, int]] = {}
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    """Basic per-IP fixed-window rate limit. Use Redis for multi-instance deployments."""
+    path = request.url.path
+    if path in ("/health", "/metrics") or path.startswith("/ws"):
+        return await call_next(request)
+    ip = request.client.host if request.client else "anon"
+    window = int(time.time() // 60)
+    win, count = _rate_window.get(ip, (window, 0))
+    count = count + 1 if win == window else 1
+    _rate_window[ip] = (window, count)
+    if count > settings.rate_limit_per_minute:
+        return JSONResponse({"detail": "Rate limit exceeded. Try again shortly."}, status_code=429)
+    return await call_next(request)
+
+
 app.include_router(account.router)
+app.include_router(billing.router)
 app.include_router(connectors.router)
 app.include_router(actions.router)
 app.include_router(meetings.router)

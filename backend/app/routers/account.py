@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import User
-from ..security.auth import get_current_user
+from ..db import get_db
+from ..models import Organization, User
+from ..security.auth import get_current_org, get_current_user
 
 router = APIRouter(prefix="/api", tags=["account"])
 
@@ -27,6 +30,25 @@ def auth_config() -> dict:
 @router.get("/me")
 def me(user: User = Depends(get_current_user)) -> dict:
     return {"id": user.id, "email": user.email, "name": user.name, "org_id": user.org_id, "role": user.role}
+
+
+@router.get("/org")
+def org(
+    user: User = Depends(get_current_user),
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Current workspace + members (team)."""
+    members = db.scalars(select(User).where(User.org_id == organization.id)).all()
+    return {
+        "id": organization.id,
+        "name": organization.name,
+        "plan": organization.plan,
+        "your_role": user.role,
+        "members": [
+            {"id": m.id, "email": m.email, "name": m.name, "role": m.role} for m in members
+        ],
+    }
 
 
 @router.get("/packs")

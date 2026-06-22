@@ -81,6 +81,11 @@ def _get(db: Session, user_id: str, provider: str) -> ConnectorConnection | None
     )
 
 
+def get_connection(db: Session, user_id: str, provider: str) -> ConnectorConnection | None:
+    """Public accessor for an existing connection (any status)."""
+    return _get(db, user_id, provider)
+
+
 # ── Connect / callback / disconnect ──────────────────────────────────────────
 def authorize_url(user: User, provider: str) -> tuple[str, str]:
     """Return (authorize_url, mode). 'live' = real provider OAuth (app registered);

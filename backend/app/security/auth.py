@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import User
+from ..models import Organization, User
 
 log = logging.getLogger("copilot.auth")
 
@@ -35,15 +35,34 @@ def _jwks() -> jwt.PyJWKClient:
     return _jwk_client
 
 
+def _ensure_org(db: Session, org_id: str, name: str) -> Organization:
+    org = db.get(Organization, org_id)
+    if org is None:
+        org = Organization(id=org_id, name=name)
+        db.add(org)
+        db.commit()
+    return org
+
+
 def _upsert(db: Session, user_id: str, email: str = "", name: str = "", org_id: str | None = None) -> User:
+    # Tenant: the Clerk org if present, else a personal workspace per user.
+    oid = org_id or f"org_{user_id}"
+    _ensure_org(db, oid, name or (email.split("@")[0] if email else "Workspace"))
     user = db.get(User, user_id)
     if user is None:
-        user = User(id=user_id, email=email, name=name, org_id=org_id)
+        user = User(id=user_id, email=email, name=name, org_id=oid, role="owner")
         db.add(user)
         db.commit()
-    elif email and user.email != email:
-        user.email = email
-        db.commit()
+    else:
+        changed = False
+        if email and user.email != email:
+            user.email = email
+            changed = True
+        if not user.org_id:
+            user.org_id = oid
+            changed = True
+        if changed:
+            db.commit()
     return user
 
 
@@ -93,3 +112,10 @@ def user_from_token(db: Session, token: str | None) -> User | None:
         return _upsert(db, claims["sub"], claims.get("email", ""), claims.get("name", ""), claims.get("org_id"))
     except Exception:
         return None
+
+
+def get_current_org(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> Organization:
+    """The caller's tenant/workspace."""
+    return _ensure_org(db, user.org_id or f"org_{user.id}", "Workspace")

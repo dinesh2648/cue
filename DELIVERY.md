@@ -72,6 +72,7 @@ Verified launch-ready: production build passes (5 routes), **38/38 end-to-end ch
 | **Two-tier latency**: instant answer (<5s SLA) → Claude+MCP deep upgrade in place | ✅ |
 | **Per-user connectors** (each employee BYO): HubSpot · Drive · Gmail · Calendar · Notion · LinkedIn | ✅ |
 | **SSO** (Clerk) · per-user data isolation · encrypted token vault · audit log | ✅ |
+| **SaaS**: organizations/tenancy · RBAC · Free/Pro/Enterprise plans · usage metering & limit enforcement · Stripe-ready billing + Settings/team UI · Alembic migrations · rate limiting | ✅ |
 
 ## Architecture (per PRD)
 
