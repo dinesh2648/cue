@@ -32,6 +32,15 @@ Open **http://localhost:3000 → Start demo meeting**. Watch the copilot work a 
 
 ## Launch (production)
 
+**Rollout scope: Sales only** (`ENABLED_PACKS=sales`). One-command launch:
+
+```bash
+docker compose up --build      # backend :8000 + frontend :3000 (zero-cred pilot)
+```
+
+Full go-live steps (env, OAuth apps, SSO, Recall.ai, smoke test, rollback):
+**[docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md)**. Manual run:
+
 ```bash
 # Backend
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt

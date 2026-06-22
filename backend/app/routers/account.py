@@ -31,10 +31,12 @@ def me(user: User = Depends(get_current_user)) -> dict:
 
 @router.get("/packs")
 def packs() -> list[dict]:
-    """Available Copilot Packs (verticals). Sales is the shipped pilot."""
+    """Copilot Packs live in this deployment. Sales-first rollout exposes only Sales."""
     from ..packs.registry import DEFAULT_PACK, list_packs
 
+    enabled = settings.enabled_pack_list
     return [
         {"key": m.key, "name": m.name, "persona": m.persona, "description": m.description, "default": m.key == DEFAULT_PACK}
         for m in list_packs()
+        if m.key in enabled
     ]

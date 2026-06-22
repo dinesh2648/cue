@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     app_name: str = "Cue"  # platform name; Sales is one Copilot Pack
     version: str = "0.3.0"
 
+    # Launch scope — which Copilot Packs are live. Sales-first rollout: "sales" only.
+    enabled_packs: str = "sales"
+
     # URLs (used for OAuth redirects)
     app_base_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:3000"
@@ -51,6 +54,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def enabled_pack_list(self) -> list[str]:
+        return [p.strip() for p in self.enabled_packs.split(",") if p.strip()]
 
     @property
     def llm_provider(self) -> str:

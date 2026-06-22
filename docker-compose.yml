@@ -1,15 +1,37 @@
-# Optional production-stack services from the PRD. The app runs WITHOUT these
-# (SQLite + in-process vector + offline LLM). Bring them up to exercise the full
-# architecture, then point backend/.env at them.
-#
-#   docker compose up -d
-#   # backend/.env:
-#   #   DATABASE_URL=postgresql+psycopg://copilot:copilot@localhost:5432/copilot
-#   #   QDRANT_URL=http://localhost:6333
-#   #   REDIS_URL=redis://localhost:6379
+# One-command launch of the Sales product:  docker compose up --build
+# → backend on :8000, frontend on :3000. Runs with zero credentials (SQLite, offline
+#   answers); add env below to turn on Claude + connectors. Data services (Postgres/
+#   Qdrant/Redis) are optional — enable with:  docker compose --profile full up --build
 services:
+  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    environment:
+      APP_BASE_URL: http://localhost:8000
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000
+      DATABASE_URL: sqlite:////data/copilot.db
+      ENABLED_PACKS: sales            # Sales-first rollout
+      # ANTHROPIC_API_KEY: ""          # turn on real Claude answers
+      # TOKEN_ENCRYPTION_KEY: ""       # REQUIRED in production
+      # CLERK_SECRET_KEY / CLERK_ISSUER / CLERK_PUBLISHABLE_KEY: SSO
+      # HUBSPOT_CLIENT_ID / HUBSPOT_CLIENT_SECRET, GOOGLE_*, NOTION_*: connectors
+      # RECALL_API_KEY: ""             # real Meet/Zoom/Teams capture
+      # DATABASE_URL: postgresql+psycopg://copilot:copilot@postgres:5432/copilot  # for --profile full
+    volumes: ["backenddata:/data"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        # NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_...
+    ports: ["3000:3000"]
+    depends_on: ["backend"]
+
   postgres:
     image: postgres:16
+    profiles: ["full"]
     environment:
       POSTGRES_USER: copilot
       POSTGRES_PASSWORD: copilot
@@ -19,13 +41,16 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
+    profiles: ["full"]
     ports: ["6333:6333"]
     volumes: ["qdrantdata:/qdrant/storage"]
 
   redis:
     image: redis:7-alpine
+    profiles: ["full"]
     ports: ["6379:6379"]
 
 volumes:
+  backenddata:
   pgdata:
   qdrantdata:

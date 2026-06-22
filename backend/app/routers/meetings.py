@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..actions import service as action_service
+from ..config import settings
 from ..db import get_db
 from ..packs.registry import get_pack
 from ..integrations import hubspot
@@ -69,6 +70,8 @@ def _get(db: Session, meeting_id: str) -> Meeting:
 def create_meeting(
     body: MeetingCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> Meeting:
+    # Sales-first rollout: only enabled packs are accepted; others fall back to default.
+    pack = body.pack if body.pack in settings.enabled_pack_list else "sales"
     meeting = Meeting(
         title=body.title,
         platform=body.platform,
@@ -76,7 +79,7 @@ def create_meeting(
         customer_contact=body.customer_contact,
         rep_name=body.rep_name,
         crm_company_id=body.crm_company_id,
-        pack=body.pack,
+        pack=pack,
         owner_user_id=user.id,
     )
     db.add(meeting)
