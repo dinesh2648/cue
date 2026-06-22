@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..actions import service as action_service
 from ..db import get_db
 from ..packs.registry import get_pack
 from ..integrations import hubspot
@@ -259,7 +260,7 @@ async def end_meeting(meeting_id: str, db: Session = Depends(get_db)) -> Meeting
     summary.follow_up_email = summary_data["follow_up_email"]
     db.commit()
 
-    # ── CRM automation (FR-007) — once per meeting (idempotent on re-end) ─────
+    # ── CRM automation (FR-007) — proposed for approval (approve-then-act) ────
     if not already_ended:
         note_body = (
             summary_data["executive_summary"]
@@ -268,12 +269,22 @@ async def end_meeting(meeting_id: str, db: Session = Depends(get_db)) -> Meeting
             + "\n\nRisks:\n- "
             + "\n- ".join(summary_data["risks"])
         )
-        hubspot.create_note(db, meeting_id, meeting.crm_company_id, note_body)
+        action_service.propose(
+            db, meeting_id=meeting_id, pack=meeting.pack, action_key="create_note",
+            kind="note", title="Log meeting recap note to CRM", payload={"body": note_body},
+        )
         for item in summary_data["action_items"][:6]:
             if "recap email" in item.lower():
                 continue
-            hubspot.create_task(db, meeting_id, meeting.crm_company_id, item)
-        hubspot.save_email_draft(db, meeting_id, meeting.crm_company_id, summary_data["follow_up_email"])
+            action_service.propose(
+                db, meeting_id=meeting_id, pack=meeting.pack, action_key="create_task",
+                kind="task", title=item, payload={"title": item},
+            )
+        action_service.propose(
+            db, meeting_id=meeting_id, pack=meeting.pack, action_key="send_email",
+            kind="email", title="Send follow-up email to customer",
+            payload={"draft": summary_data["follow_up_email"]},
+        )
         db.add(AuditLog(actor="copilot", action="meeting.ended", resource=meeting_id))
         db.commit()
 

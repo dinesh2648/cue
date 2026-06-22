@@ -185,6 +185,32 @@ class ConnectorConnection(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class ProposedAction(Base):
+    """Approve-then-act: a write the agent proposes; a human approves before it executes.
+
+    Reads/suggestions run freely; every write (CRM note/task, email, shared doc, ticket, PR…)
+    lands here as `proposed` until approved, then executes via the user's connector and is audited.
+    """
+
+    __tablename__ = "proposed_actions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    pack: Mapped[str] = mapped_column(String(32), default="sales")
+    action_key: Mapped[str] = mapped_column(String(48))
+    kind: Mapped[str] = mapped_column(String(24))  # task|note|email|document|workflow|ticket|pr
+    title: Mapped[str] = mapped_column(String(255))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    write: Mapped[bool] = mapped_column(default=True)
+    autonomy: Mapped[str] = mapped_column(String(16), default="approve")  # suggest|approve|auto
+    status: Mapped[str] = mapped_column(String(16), default="proposed")  # proposed|executed|rejected|failed
+    approver: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AuditLog(Base):
     """Security requirement: audit logging of all material actions."""
 

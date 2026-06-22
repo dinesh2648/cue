@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Suggestion } from "@/lib/types";
+import type { Suggestion, Action } from "@/lib/types";
 import { intentMeta, confidenceColor, ACTION_ICON } from "@/lib/intents";
 
 const SOURCE_ICON: Record<string, string> = {
@@ -11,11 +11,27 @@ const SOURCE_ICON: Record<string, string> = {
   connector: "🔌",
 };
 
-export default function SuggestionCard({ s }: { s: Suggestion }) {
+export default function SuggestionCard({
+  s,
+  onPropose,
+}: {
+  s: Suggestion;
+  onPropose?: (action: Action) => void | Promise<void>;
+}) {
   const meta = intentMeta(s.intent_type);
   const pct = Math.round(s.confidence * 100);
-  const [done, setDone] = useState<Record<number, boolean>>({});
+  const [proposed, setProposed] = useState<Record<number, boolean>>({});
   const liveAgent = s.engine === "claude+mcp";
+
+  const propose = async (i: number, a: Action) => {
+    if (proposed[i]) return;
+    setProposed((p) => ({ ...p, [i]: true }));
+    try {
+      await onPropose?.(a);
+    } catch {
+      setProposed((p) => ({ ...p, [i]: false }));
+    }
+  };
   const fastPhase = s.engine === "fast";
   const refining = !!s.deep_pending && !liveAgent;
 
@@ -103,10 +119,12 @@ export default function SuggestionCard({ s }: { s: Suggestion }) {
               {s.actions.map((a, i) => (
                 <button
                   key={i}
-                  className={`action-btn ${done[i] ? "done" : ""}`}
-                  onClick={() => setDone((d) => ({ ...d, [i]: !d[i] }))}
+                  className={`action-btn ${proposed[i] ? "done" : ""}`}
+                  disabled={proposed[i]}
+                  title={proposed[i] ? "Sent to Approvals" : "Propose for approval"}
+                  onClick={() => propose(i, a)}
                 >
-                  {done[i] ? "✓" : ACTION_ICON[a.type] ?? "•"} {a.label}
+                  {proposed[i] ? "✓ proposed" : `${ACTION_ICON[a.type] ?? "•"} ${a.label}`}
                 </button>
               ))}
             </div>

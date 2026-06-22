@@ -65,8 +65,8 @@ export default function SummaryPanel({ summary }: { summary: Summary }) {
       <div className="crm-banner">
         <span style={{ fontSize: 18 }}>🔄</span>
         <div>
-          <b>CRM updated automatically</b> — a recap note, follow-up tasks, and an email draft were written
-          back to HubSpot for this account.
+          <b>CRM updates ready for approval</b> — a recap note, follow-up tasks, and a follow-up email were
+          drafted and queued in <b>Approvals</b> above. Nothing is written to your CRM until you approve it.
         </div>
       </div>
 

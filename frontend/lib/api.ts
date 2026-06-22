@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction } from "./types";
 
 export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export const WS_BASE = API.replace(/^http/, "ws");
@@ -50,6 +50,14 @@ export const api = {
   suggestions: (id: string) => request<Suggestion[]>(`/api/meetings/${id}/suggestions`),
   end: (id: string) => request<Summary>(`/api/meetings/${id}/end`, { method: "POST" }),
   summary: (id: string) => request<Summary>(`/api/meetings/${id}/summary`),
+
+  // Approve-then-act
+  listActions: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions`),
+  proposeAction: (id: string, action: Record<string, unknown>) =>
+    request<ProposedAction>(`/api/meetings/${id}/actions/propose`, { method: "POST", body: JSON.stringify({ action }) }),
+  approveAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/approve`, { method: "POST" }),
+  rejectAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/reject`, { method: "POST" }),
+  approveAll: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions/approve-all`, { method: "POST" }),
   metrics: () => request<Metrics>("/metrics"),
   health: () =>
     request<{ status: string; llm_provider: string; agent_engine: string; knowledge_backend: string; dev_mode: boolean }>(

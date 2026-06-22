@@ -200,10 +200,10 @@ Most have hosted MCP servers or OAuth apps; the rest get thin API adapters.
 
 ## 9. Sequenced roadmap
 
-| Phase | Scope | Rough effort |
+| Phase | Scope | Status / effort |
 |---|---|---|
-| **A** | Extract the **Pack abstraction**; move Sales into `packs/sales/` (no behavior change) | S |
-| **B** | **Action/approval framework** (`ProposedAction` + approve/reject API + Approvals UI); retrofit Sales writes | S–M |
+| **A** | Extract the **Pack abstraction**; move Sales into `packs/sales/` (no behavior change) | ✅ **done** |
+| **B** | **Action/approval framework** (`ProposedAction` + approve/reject API + Approvals UI); retrofit Sales writes | ✅ **done** |
 | **C** | **Async workflow engine** (Temporal or queue) + WS progress + gate pauses | M |
 | **D** | **Developer connectors** (GitHub, Jira, Confluence, Slack, CI) | M |
 | **E** | **Developer pack** — inline requirement capture + async Jira→repo→code→verify→PR with gates + coding agent in worktree | L |

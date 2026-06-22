@@ -14,7 +14,7 @@ from .knowledge.store import index
 from .models import KnowledgeDoc, Meeting, Suggestion
 from .realtime.engine import process_utterance
 from .realtime.manager import manager
-from .routers import account, connectors, crm, knowledge, meetings, webhooks
+from .routers import account, actions, connectors, crm, knowledge, meetings, webhooks
 from .security.auth import user_from_token
 from .seed.data import seed_if_empty
 
@@ -59,6 +59,7 @@ app.add_middleware(
 
 app.include_router(account.router)
 app.include_router(connectors.router)
+app.include_router(actions.router)
 app.include_router(meetings.router)
 app.include_router(knowledge.router)
 app.include_router(crm.router)

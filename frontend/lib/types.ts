@@ -82,6 +82,24 @@ export interface Metrics {
   sla_compliance_pct: number;
 }
 
+export interface ProposedAction {
+  id: string;
+  meeting_id: string;
+  pack: string;
+  action_key: string;
+  kind: string;
+  title: string;
+  payload: Record<string, unknown>;
+  write: boolean;
+  autonomy: string;
+  status: "proposed" | "executed" | "rejected" | "failed";
+  approver: string | null;
+  result: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
 export type WSEvent =
   | { type: "transcript"; data: Segment }
   | { type: "intent"; data: { intent_type: string; family: string; confidence: number; query_text: string; actionable: boolean } }

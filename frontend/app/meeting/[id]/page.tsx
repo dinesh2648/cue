@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api, meetingSocket } from "@/lib/api";
-import type { Meeting, Segment, Suggestion, Summary, WSEvent } from "@/lib/types";
+import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Action } from "@/lib/types";
 import SuggestionCard from "@/components/SuggestionCard";
 import SummaryPanel from "@/components/SummaryPanel";
+import ApprovalsPanel from "@/components/ApprovalsPanel";
 
 export default function MeetingConsole() {
   const params = useParams();
@@ -17,9 +18,28 @@ export default function MeetingConsole() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [status, setStatus] = useState<string>("scheduled");
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [actions, setActions] = useState<ProposedAction[]>([]);
   const [thinking, setThinking] = useState(false);
   const [ending, setEnding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const refreshActions = () => api.listActions(id).then(setActions).catch(() => {});
+  const proposeAction = async (action: Action) => {
+    await api.proposeAction(id, action);
+    refreshActions();
+  };
+  const approveAction = async (aid: string) => {
+    await api.approveAction(aid);
+    refreshActions();
+  };
+  const rejectAction = async (aid: string) => {
+    await api.rejectAction(aid);
+    refreshActions();
+  };
+  const approveAll = async () => {
+    await api.approveAll(id);
+    refreshActions();
+  };
 
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -37,6 +57,7 @@ export default function MeetingConsole() {
       if (!alive) return;
       setSegments(t);
       setSuggestions(s);
+      api.listActions(id).then((acts) => alive && setActions(acts)).catch(() => {});
       if (m.status === "ended") {
         api.summary(id).then(setSummary).catch(() => {});
       }
@@ -104,8 +125,9 @@ export default function MeetingConsole() {
       const s = await api.end(id);
       setSummary(s);
       setStatus("ended");
-      setToast("Meeting ended — summary generated & CRM updated");
-      setTimeout(() => setToast(null), 2600);
+      refreshActions();
+      setToast("Meeting ended — review & approve the proposed updates below");
+      setTimeout(() => setToast(null), 2800);
     } finally {
       setEnding(false);
     }
@@ -212,11 +234,20 @@ export default function MeetingConsole() {
                 here — with sources and a confidence score, in seconds.
               </div>
             ) : (
-              suggestions.map((s) => <SuggestionCard key={s.id} s={s} />)
+              suggestions.map((s) => <SuggestionCard key={s.id} s={s} onPropose={proposeAction} />)
             )}
           </div>
         </div>
       </div>
+
+      {actions.length > 0 && (
+        <ApprovalsPanel
+          actions={actions}
+          onApprove={approveAction}
+          onReject={rejectAction}
+          onApproveAll={approveAll}
+        />
+      )}
 
       {summary && <SummaryPanel summary={summary} />}
 

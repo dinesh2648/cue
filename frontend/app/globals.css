@@ -207,5 +207,16 @@ button { font-family: inherit; cursor: pointer; }
 .meet-input:disabled { opacity: 0.55; }
 code { background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
 
+/* ── Approvals ─────────────────────────────────────── */
+.approvals { display: flex; flex-direction: column; gap: 10px; }
+.approval { display: flex; align-items: center; gap: 13px; padding: 13px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.approval.proposed { border-color: var(--border2); background: linear-gradient(180deg, rgba(251,191,36,0.05), var(--surface)); }
+.approval.executed { border-color: #1f4d3c; }
+.approval.rejected, .approval.failed { opacity: 0.6; }
+.ak-icon { font-size: 18px; width: 36px; height: 36px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; flex-shrink: 0; }
+.ak-title { font-size: 14px; font-weight: 600; }
+.ak-meta { font-size: 12px; color: var(--faint); text-transform: capitalize; margin-top: 2px; }
+.ak-done { color: var(--green); } .ak-rej { color: var(--muted); }
+
 .empty { color: var(--faint); font-size: 13.5px; text-align: center; padding: 40px 20px; line-height: 1.6; }
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border-2); padding: 11px 18px; border-radius: 11px; font-size: 13px; box-shadow: var(--shadow); z-index: 50; animation: slideIn 0.25s ease; }

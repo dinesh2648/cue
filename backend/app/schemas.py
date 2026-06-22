@@ -104,6 +104,25 @@ class CRMObjectOut(BaseModel):
     source: str
 
 
+class ProposedActionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    meeting_id: str
+    pack: str
+    action_key: str
+    kind: str
+    title: str
+    payload: dict
+    write: bool
+    autonomy: str
+    status: str
+    approver: str | None
+    result: dict
+    error: str | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
 # ─── Knowledge ───────────────────────────────────────────────────────────────
 class KnowledgeHit(BaseModel):
     doc_id: str
