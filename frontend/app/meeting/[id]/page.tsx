@@ -234,7 +234,9 @@ export default function MeetingConsole() {
                 here — with sources and a confidence score, in seconds.
               </div>
             ) : (
-              suggestions.map((s) => <SuggestionCard key={s.id} s={s} onPropose={proposeAction} />)
+              suggestions.map((s) => (
+                <SuggestionCard key={s.id} s={s} onPropose={proposeAction} repName={meeting?.rep_name} />
+              ))
             )}
           </div>
         </div>

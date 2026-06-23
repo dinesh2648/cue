@@ -147,6 +147,14 @@ button { font-family: inherit; cursor: pointer; }
 .trust.warn { background: rgba(251,191,36,0.14); color: #fcd34d; }
 .trust.scope { background: rgba(34,211,238,0.14); color: #67e8f9; }
 .trust.demo { background: rgba(148,160,189,0.12); color: var(--muted); }
+.trust-why { background: none; border: none; color: var(--faint); font-size: 11px; cursor: pointer; text-decoration: underline; padding: 3px 4px; font-family: inherit; }
+.trust-why:hover { color: var(--accent); }
+.trust-detail { background: var(--bg-2); border: 1px solid var(--border); border-radius: 11px; padding: 13px 15px; margin-bottom: 12px; }
+.td-title { font-size: 12px; font-weight: 800; letter-spacing: 0.02em; margin-bottom: 8px; color: var(--text); }
+.td-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.td-list li { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.td-list b { color: var(--text); font-weight: 700; }
+.td-sub { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); font-weight: 700; margin: 10px 0 7px; }
 .answer { font-size: 14.5px; line-height: 1.55; }
 .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--faint); font-weight: 700; margin: 14px 0 7px; }
 .evidence { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }

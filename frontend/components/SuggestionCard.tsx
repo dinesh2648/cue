@@ -14,13 +14,16 @@ const SOURCE_ICON: Record<string, string> = {
 export default function SuggestionCard({
   s,
   onPropose,
+  repName,
 }: {
   s: Suggestion;
   onPropose?: (action: Action) => void | Promise<void>;
+  repName?: string;
 }) {
   const meta = intentMeta(s.intent_type);
   const pct = Math.round(s.confidence * 100);
   const [proposed, setProposed] = useState<Record<number, boolean>>({});
+  const [showTrust, setShowTrust] = useState(false);
   const liveAgent = s.engine === "claude+mcp";
 
   const propose = async (i: number, a: Action) => {
@@ -94,7 +97,56 @@ export default function SuggestionCard({
           >
             {userScope ? "🔒 Answered as you · your access only" : "🗂️ demo data"}
           </span>
+          <button className="trust-why" onClick={() => setShowTrust((v) => !v)}>
+            {showTrust ? "hide" : "why can I trust this?"}
+          </button>
         </div>
+
+        {showTrust && (
+          <div className="trust-detail">
+            <div className="td-title">Why you can trust this answer</div>
+            <ul className="td-list">
+              <li>
+                <b>Engine</b> — {liveAgent ? "Claude live agent over your tools" : fastPhase ? "Instant local retrieval" : "Offline composer"}
+                {s.latency_ms ? ` · ${s.latency_ms}ms to first answer` : ""}
+                {s.deep_latency_ms ? ` · +${(s.deep_latency_ms / 1000).toFixed(0)}s deep` : ""}
+              </li>
+              <li>
+                <b>Grounding</b> —{" "}
+                {grounded
+                  ? "every claim is drawn from the sources below — nothing invented."
+                  : "not found in your sources, so the copilot abstained instead of guessing."}
+              </li>
+              <li>
+                <b>Access</b> —{" "}
+                {userScope
+                  ? `retrieved as ${repName || "you"} through your own connected tools. Only data you can access was read — nothing outside your permissions was touched.`
+                  : "seeded demo data. Connect your tools on the Connections page to answer from your own permission-scoped sources."}
+              </li>
+              <li><b>Confidence</b> — {pct}%</li>
+            </ul>
+            {s.sources?.length > 0 && (
+              <>
+                <div className="td-sub">Sources consulted ({s.sources.length})</div>
+                <div className="sources">
+                  {s.sources.map((src, i) =>
+                    src.url ? (
+                      <a key={i} className={`source-chip ${src.type}`} href={src.url} target="_blank" rel="noreferrer">
+                        <span className="ic">{SOURCE_ICON[src.type] ?? "📄"}</span>
+                        {src.label}
+                      </a>
+                    ) : (
+                      <span key={i} className={`source-chip ${src.type}`}>
+                        <span className="ic">{SOURCE_ICON[src.type] ?? "📄"}</span>
+                        {src.label}
+                      </span>
+                    )
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <div className="answer">{s.answer}</div>
 
         {s.evidence?.length > 0 && (
