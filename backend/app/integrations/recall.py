@@ -37,12 +37,15 @@ async def create_bot(meeting_url: str, meeting_id: str, bot_name: str = "Sales C
     if not api_key:
         raise RuntimeError("RECALL_API_KEY not configured")
 
+    # Transcription source — configurable so we can switch live without a code change.
+    # "meeting_captions" (default) uses Google Meet's captions; set RECALL_TRANSCRIPT_PROVIDER
+    # to an ASR provider (e.g. "assembly_ai_streaming", "deepgram_streaming") for reliable real-time.
+    provider = os.getenv("RECALL_TRANSCRIPT_PROVIDER", "meeting_captions")
     payload = {
         "meeting_url": meeting_url,
         "bot_name": bot_name,
         "recording_config": {
-            # Use the meeting platform's live captions; swap in an ASR provider as needed.
-            "transcript": {"provider": {"meeting_captions": {}}},
+            "transcript": {"provider": {provider: {}}},
             "realtime_endpoints": [
                 {
                     "type": "webhook",
