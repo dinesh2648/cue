@@ -114,6 +114,8 @@ def _parse(resp, mcp_servers: list[dict]) -> dict:
         "sources": sources,
         "confidence": round(confidence, 2),
         "engine": "claude+mcp",
+        "grounded": bool(used_providers),
+        "access_scope": "user",  # live retrieval through THIS rep's own connectors
     }
 
 

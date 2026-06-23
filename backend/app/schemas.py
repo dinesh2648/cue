@@ -64,6 +64,8 @@ class SuggestionOut(BaseModel):
     latency_ms: int
     deep_latency_ms: int = 0
     engine: str = "offline"
+    grounded: bool = True
+    access_scope: str = "demo"
     created_at: datetime
 
 

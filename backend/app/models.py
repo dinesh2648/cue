@@ -90,6 +90,8 @@ class Suggestion(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)  # time-to-first (fast path) — the SLA metric
     deep_latency_ms: Mapped[int] = mapped_column(Integer, default=0)  # full agent loop time
     engine: Mapped[str] = mapped_column(String(24), default="offline")
+    grounded: Mapped[bool] = mapped_column(default=True)  # cited from a real source vs. abstained
+    access_scope: Mapped[str] = mapped_column(String(16), default="demo")  # user (live per-user) | demo (seeded)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     meeting: Mapped[Meeting] = relationship(back_populates="suggestions")

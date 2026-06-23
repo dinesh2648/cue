@@ -32,7 +32,8 @@ _SYSTEM = (
     "the rep should say — concise (2-4 sentences), warm, and speakable immediately. Output ONLY "
     "those words: no preamble like 'Here's what you can say', no surrounding quotes, no asides or "
     "parentheticals. Use only what the tools return — never invent specifics. Always call at least "
-    "one tool before answering."
+    "one tool before answering. If the tools don't contain the answer, say you'll confirm and "
+    "follow up — never guess."
 )
 
 
@@ -168,4 +169,6 @@ async def run_turn(query: str, intent_type: str, company_id: str | None) -> dict
         "sources": uniq,
         "confidence": round(confidence, 2),
         "engine": "claude+mcp",
+        "grounded": bool(used_tools),
+        "access_scope": "demo",  # in-process tools over seeded data (local dev)
     }

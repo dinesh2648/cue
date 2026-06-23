@@ -120,6 +120,8 @@ async def process_utterance(
             confidence=fast["confidence"],
             latency_ms=fast_latency,
             engine="fast" if deep_will_run else "offline",
+            grounded=fast.get("grounded", True),
+            access_scope="demo",  # fast tier = local CRM/retrieval
         )
         db.add(sugg)
         db.add(
@@ -151,6 +153,8 @@ async def process_utterance(
                 sugg.confidence = deep["confidence"]
                 sugg.engine = deep.get("engine", "claude+mcp")
                 sugg.deep_latency_ms = deep_latency
+                sugg.grounded = deep.get("grounded", True)
+                sugg.access_scope = deep.get("access_scope", "demo")
             else:
                 sugg.engine = "offline"  # deep failed; keep the fast answer
             db.commit()
@@ -175,6 +179,8 @@ def _sugg_payload(sugg: Suggestion, *, deep_pending: bool) -> dict:
         "latency_ms": sugg.latency_ms,
         "deep_latency_ms": sugg.deep_latency_ms,
         "engine": sugg.engine,
+        "grounded": sugg.grounded,
+        "access_scope": sugg.access_scope,
         "deep_pending": deep_pending,
         "created_at": sugg.created_at.isoformat(),
     }

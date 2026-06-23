@@ -34,6 +34,8 @@ export default function SuggestionCard({
   };
   const fastPhase = s.engine === "fast";
   const refining = !!s.deep_pending && !liveAgent;
+  const grounded = s.grounded !== false;
+  const userScope = s.access_scope === "user";
 
   return (
     <div className="suggestion">
@@ -78,6 +80,21 @@ export default function SuggestionCard({
       </div>
 
       <div className="s-body">
+        <div className="trust-row">
+          <span className={`trust ${grounded ? "ok" : "warn"}`}>
+            {grounded ? "✓ Grounded · cited" : "⚠ Will confirm — not in your sources"}
+          </span>
+          <span
+            className={`trust ${userScope ? "scope" : "demo"}`}
+            title={
+              userScope
+                ? "Retrieved live through your own connected tools, scoped to your permissions — the copilot can't see anything you can't."
+                : "Demo/seeded data. Connect your tools to answer from your own permission-scoped sources."
+            }
+          >
+            {userScope ? "🔒 Answered as you · your access only" : "🗂️ demo data"}
+          </span>
+        </div>
         <div className="answer">{s.answer}</div>
 
         {s.evidence?.length > 0 && (

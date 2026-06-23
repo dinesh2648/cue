@@ -141,6 +141,12 @@ button { font-family: inherit; cursor: pointer; }
 .suggestion .s-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .suggestion .q { color: var(--muted); font-size: 12.5px; font-style: italic; }
 .suggestion .s-body { padding: 14px; }
+.trust-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 11px; }
+.trust { font-size: 11px; font-weight: 700; letter-spacing: 0.01em; padding: 3px 9px; border-radius: 7px; }
+.trust.ok { background: rgba(52,211,153,0.14); color: #6ee7b7; }
+.trust.warn { background: rgba(251,191,36,0.14); color: #fcd34d; }
+.trust.scope { background: rgba(34,211,238,0.14); color: #67e8f9; }
+.trust.demo { background: rgba(148,160,189,0.12); color: var(--muted); }
 .answer { font-size: 14.5px; line-height: 1.55; }
 .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--faint); font-weight: 700; margin: 14px 0 7px; }
 .evidence { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }

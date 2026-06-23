@@ -131,10 +131,24 @@ async def answer_node(state: dict) -> dict:
     hits = state.get("knowledge_hits", [])
     company = (state.get("crm_context") or {}).get("company", {})
 
+    evidence = _build_evidence(facts, hits)
+
+    # Grounding guarantee: if there's nothing to cite, abstain instead of guessing.
+    if not evidence:
+        return {
+            "answer": (
+                "I don't see that in your connected sources yet — let me confirm with the team "
+                "and follow up right after the call rather than give you a number I'm unsure of."
+            ),
+            "evidence": [],
+            "sources": [],
+            "confidence": 0.3,
+            "grounded": False,
+        }
+
     answer = _compose_offline(intent_type, facts, hits)
 
     # Optional LLM polish — grounded, never authoritative over evidence/score.
-    evidence = _build_evidence(facts, hits)
     if evidence:
         polished = await llm_complete(
             system=(
@@ -156,4 +170,5 @@ async def answer_node(state: dict) -> dict:
         "evidence": evidence,
         "sources": _build_sources(company, facts, hits),
         "confidence": _confidence(intent["confidence"], hits, facts),
+        "grounded": True,
     }

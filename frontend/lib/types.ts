@@ -45,6 +45,8 @@ export interface Suggestion {
   latency_ms: number;
   deep_latency_ms?: number;
   engine?: string;
+  grounded?: boolean;
+  access_scope?: string;
   deep_pending?: boolean;
   created_at: string;
 }

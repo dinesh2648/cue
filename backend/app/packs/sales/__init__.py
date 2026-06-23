@@ -41,6 +41,7 @@ class SalesPack(CopilotPack):
             "sources": result.get("sources", []),
             "confidence": result.get("confidence", 0.0),
             "actions": result.get("actions", []),
+            "grounded": result.get("grounded", True),
         }
 
     async def deep_answer(self, *, db, meeting, text, intent, servers) -> dict | None:
