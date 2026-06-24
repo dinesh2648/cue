@@ -14,5 +14,14 @@ echo "→ installing dependencies"
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
 
+# Export .env into the process so os.getenv-based config (Recall, connector OAuth
+# client ids/secrets) is picked up — pydantic only loads its own Settings fields.
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 echo "→ starting API on http://localhost:8000  (docs: /docs)"
 exec uvicorn app.main:app --reload --port 8000
