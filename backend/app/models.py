@@ -29,9 +29,13 @@ class Meeting(Base):
     rep_name: Mapped[str] = mapped_column(String(255), default="")
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled|live|ended
     crm_company_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recall_bot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Recall.ai bot → recording
+    meeting_url: Mapped[str | None] = mapped_column(String(512), index=True, nullable=True)  # video-call link (dedup)
+    calendar_event_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)  # auto-join dedup
     owner_user_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)  # tenant (for usage/billing)
     pack: Mapped[str] = mapped_column(String(32), default="sales")  # which Copilot Pack drives this meeting
+    attendees: Mapped[list] = mapped_column(JSON, default=list)  # attendee emails — for shared-meeting visibility
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -111,6 +115,51 @@ class MeetingSummary(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class MeetingScorecard(Base):
+    """Post-call rep coaching scorecard — how the rep handled the call, with scores + tips.
+
+    Stores the overall score + per-dimension breakdown so team-level coaching can aggregate
+    across a rep's meetings.
+    """
+
+    __tablename__ = "meeting_scorecards"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True, unique=True)
+    rep_name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    overall_score: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    headline: Mapped[str] = mapped_column(Text, default="")
+    dimensions: Mapped[list] = mapped_column(JSON, default=list)  # [{name, score, comment}]
+    strengths: Mapped[list] = mapped_column(JSON, default=list)
+    improvements: Mapped[list] = mapped_column(JSON, default=list)
+    coaching_tips: Mapped[list] = mapped_column(JSON, default=list)  # [{tip, example}]
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)  # talk ratio, questions, fillers…
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class MeetingPrep(Base):
+    """Pre-meeting preparation brief for an UPCOMING calendar event.
+
+    Agent-researched across the rep's connected sources (HubSpot, Notion, Drive, Gmail) +
+    prior meeting notes, cached per (user, calendar event) so it isn't regenerated on every
+    page load. Keyed by calendar_event_id because the Meeting row doesn't exist yet.
+    """
+
+    __tablename__ = "meeting_preps"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    owner_user_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)  # tenant scope
+    calendar_event_id: Mapped[str] = mapped_column(String(128), index=True)
+    event_title: Mapped[str] = mapped_column(String(255), default="")
+    event_start: Mapped[str] = mapped_column(String(64), default="")  # ISO string from calendar
+    customer: Mapped[str] = mapped_column(String(255), default="")  # inferred customer/company
+    markdown: Mapped[str] = mapped_column(Text, default="")  # the prep brief (rendered as markdown)
+    sources: Mapped[list] = mapped_column(JSON, default=list)  # [{label, type, detail, url}]
+    engine: Mapped[str] = mapped_column(String(32), default="")  # claude+mcp | llm | offline
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class CRMObject(Base):
     """Mock-or-real CRM record. Seeded mock data + auto-created notes/tasks live here."""
 
@@ -119,6 +168,7 @@ class CRMObject(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     object_type: Mapped[str] = mapped_column(String(24), index=True)  # company|contact|deal|ticket|task|note
     company_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)  # tenant scope
     properties: Mapped[dict] = mapped_column(JSON, default=dict)
     source: Mapped[str] = mapped_column(String(16), default="mock")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -156,7 +206,7 @@ class Organization(Base):
 
     __tablename__ = "organizations"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # Clerk org id or org_<user>
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # org_<email-domain> or org_<user>
     name: Mapped[str] = mapped_column(String(255), default="Workspace")
     plan: Mapped[str] = mapped_column(String(24), default="free")  # free|pro|enterprise
     seats: Mapped[int] = mapped_column(Integer, default=1)
@@ -166,7 +216,7 @@ class Organization(Base):
 
 
 class User(Base):
-    """An employee. `id` is the Clerk user id (or a dev id in DEV mode)."""
+    """An employee. `id` is `google_<sub>` from Google sign-in (or a dev id in DEV mode)."""
 
     __tablename__ = "users"
 
@@ -174,7 +224,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), default="")
     name: Mapped[str] = mapped_column(String(255), default="")
     org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=True)
-    role: Mapped[str] = mapped_column(String(32), default="owner")  # owner|admin|member
+    role: Mapped[str] = mapped_column(String(32), default="owner")  # owner|admin|manager|member
+    team: Mapped[str] = mapped_column(String(16), default="sales")  # sales|tech|ops → which Copilot Pack
+    manager_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
+    autopilot: Mapped[bool] = mapped_column(default=False)  # auto-join + auto-summarize my meetings
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

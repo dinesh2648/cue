@@ -17,7 +17,7 @@ export default function SummaryPanel({ summary }: { summary: Summary }) {
   };
 
   return (
-    <div style={{ marginTop: 26 }}>
+    <div className="summary-panel" style={{ marginTop: 26 }}>
       <h2 className="section-title">📋 Post-meeting summary &amp; automation</h2>
 
       <div className="card pad">

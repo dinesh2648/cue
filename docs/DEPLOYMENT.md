@@ -17,7 +17,7 @@ front for TLS and your domain.
 ### Production `.env` essentials
 - `PUBLIC_API_URL`, `APP_BASE_URL`, `FRONTEND_URL`, `CORS_ORIGINS` → your real https domain(s).
 - `TOKEN_ENCRYPTION_KEY` → a strong secret (**required**).
-- `ANTHROPIC_API_KEY` (real Claude), `CLERK_*` (SSO), `STRIPE_*` (billing), provider OAuth, `RECALL_API_KEY` — as needed.
+- `ANTHROPIC_API_KEY` (real Claude), `GOOGLE_CLIENT_ID/SECRET`, `SESSION_SECRET` (Google sign-in), `STRIPE_*` (billing), provider OAuth, `RECALL_API_KEY` — as needed.
 - **Postgres:** set `DATABASE_URL=postgresql+psycopg://copilot:copilot@postgres:5432/copilot` and run with the data services:
   ```bash
   docker compose --profile full up -d --build

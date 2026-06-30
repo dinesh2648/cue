@@ -31,17 +31,16 @@ def _now() -> datetime:
 
 
 # ── OAuth state (stateless, signed) ──────────────────────────────────────────
-def sign_state(user_id: str, provider: str) -> str:
-    return jwt.encode(
-        {"uid": user_id, "provider": provider, "exp": _now() + timedelta(minutes=10)},
-        _STATE_SECRET,
-        algorithm="HS256",
-    )
+def sign_state(user_id: str, provider: str, code_verifier: str | None = None) -> str:
+    payload = {"uid": user_id, "provider": provider, "exp": _now() + timedelta(minutes=10)}
+    if code_verifier:  # carry the PKCE verifier through the round-trip (signed, tamper-proof)
+        payload["cv"] = code_verifier
+    return jwt.encode(payload, _STATE_SECRET, algorithm="HS256")
 
 
-def verify_state(state: str) -> tuple[str, str]:
+def verify_state(state: str) -> tuple[str, str, str | None]:
     claims = jwt.decode(state, _STATE_SECRET, algorithms=["HS256"])
-    return claims["uid"], claims["provider"]
+    return claims["uid"], claims["provider"], claims.get("cv")
 
 
 # ── Catalog + status ─────────────────────────────────────────────────────────
@@ -92,9 +91,12 @@ def authorize_url(user: User, provider: str) -> tuple[str, str]:
     'demo' = built-in consent screen so the click-through works with zero setup."""
     if provider not in CONNECTORS:
         raise ValueError("unknown provider")
-    state = sign_state(user.id, provider)
     if is_configured(provider):
-        return oauth.build_authorize_url(provider, state), "live"
+        verifier = oauth.new_code_verifier() if CONNECTORS[provider].oauth.pkce else None
+        state = sign_state(user.id, provider, verifier)
+        challenge = oauth.code_challenge(verifier) if verifier else None
+        return oauth.build_authorize_url(provider, state, challenge), "live"
+    state = sign_state(user.id, provider)
     return f"{settings.app_base_url}/api/connectors/{provider}/demo-authorize?state={quote(state)}", "demo"
 
 
@@ -106,7 +108,7 @@ def connect_demo(db: Session, provider: str, state: str) -> ConnectorConnection:
     """
     if provider not in CONNECTORS:
         raise ValueError("unknown provider")
-    user_id, expected = verify_state(state)
+    user_id, expected, _cv = verify_state(state)
     if expected != provider:
         raise ValueError("state/provider mismatch")
     conn = _get(db, user_id, provider) or ConnectorConnection(user_id=user_id, provider=provider)
@@ -125,10 +127,10 @@ def connect_demo(db: Session, provider: str, state: str) -> ConnectorConnection:
 
 
 async def handle_callback(db: Session, provider: str, code: str, state: str) -> ConnectorConnection:
-    user_id, expected = verify_state(state)
+    user_id, expected, code_verifier = verify_state(state)
     if expected != provider:
         raise ValueError("state/provider mismatch")
-    tok = await oauth.exchange_code(provider, code)
+    tok = await oauth.exchange_code(provider, code, code_verifier)
 
     conn = _get(db, user_id, provider) or ConnectorConnection(user_id=user_id, provider=provider)
     conn.access_token_enc = encrypt(tok["access_token"])
@@ -203,7 +205,12 @@ def _expiry(expires_in) -> datetime | None:
 async def _valid_access_token(db: Session, conn: ConnectorConnection) -> str | None:
     if conn.status != "connected":
         return None
-    needs_refresh = conn.expires_at and _now() >= conn.expires_at - timedelta(seconds=60)
+    # SQLite returns naive datetimes even for tz-aware columns — normalize to UTC
+    # before comparing against the tz-aware now().
+    exp = conn.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    needs_refresh = exp is not None and _now() >= exp - timedelta(seconds=60)
     if needs_refresh and conn.refresh_token_enc:
         try:
             tok = await oauth.refresh_token(conn.provider, decrypt(conn.refresh_token_enc) or "")
@@ -219,6 +226,31 @@ async def _valid_access_token(db: Session, conn: ConnectorConnection) -> str | N
             db.commit()
             return None
     return decrypt(conn.access_token_enc)
+
+
+async def get_access_token(db: Session, user_id: str, provider: str) -> str | None:
+    """A user's current (auto-refreshed) access token for a provider, or None.
+
+    For direct provider REST calls (e.g. reading Google Calendar events) — separate
+    from the MCP path. Returns None if not connected or the token can't be refreshed.
+    """
+    conn = _get(db, user_id, provider)
+    if conn is None:
+        return None
+    return await _valid_access_token(db, conn)
+
+
+async def google_read_tokens(db: Session, user_id: str | None) -> tuple[str | None, str | None]:
+    """(drive_token, gmail_token) for the in-process Google read tools — these have no hosted
+    MCP, so the agent reads them via the REST API + the user's token. None when absent/demo."""
+    if not user_id:
+        return None, None
+
+    async def _live(provider: str) -> str | None:
+        t = await get_access_token(db, user_id, provider)
+        return None if (not t or t.startswith("demo-")) else t
+
+    return await _live("google_drive"), await _live("gmail")
 
 
 async def active_mcp_servers(db: Session, user_id: str) -> list[dict]:
@@ -240,5 +272,6 @@ async def active_mcp_servers(db: Session, user_id: str) -> list[dict]:
         token = await _valid_access_token(db, conn)
         if not token:
             continue
-        servers.append({"name": conn.provider, "url": url, "token": token})
+        transport = CONNECTORS[conn.provider].mcp_transport if conn.provider in CONNECTORS else "http"
+        servers.append({"name": conn.provider, "url": url, "token": token, "transport": transport})
     return servers

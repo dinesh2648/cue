@@ -20,6 +20,8 @@ class OAuthConfig:
     token_auth: str = "post"  # "post" = client creds in body | "basic" = HTTP Basic
     refreshable: bool = True
     userinfo_url: str | None = None
+    pkce: bool = False  # send PKCE code_challenge/verifier (required by HubSpot MCP apps)
+    token_headers: dict = field(default_factory=dict)  # extra token-request headers (e.g. GitHub Accept: json)
 
 
 @dataclass
@@ -32,6 +34,7 @@ class Connector:
     oauth: OAuthConfig
     credentials_provider: str  # which *_CLIENT_ID/SECRET env prefix to use
     default_mcp_url: str | None = None
+    mcp_transport: str = "http"  # "http" | "sse" — how the agent connects to the remote MCP
 
 
 CONNECTORS: dict[str, Connector] = {
@@ -54,6 +57,7 @@ CONNECTORS: dict[str, Connector] = {
                 "oauth",
             ],
             userinfo_url="https://api.hubapi.com/oauth/v1/access-tokens/",
+            pkce=True,  # HubSpot MCP-auth apps require PKCE
         ),
     ),
     "google_drive": Connector(
@@ -125,12 +129,46 @@ CONNECTORS: dict[str, Connector] = {
             authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
             token_url="https://oauth2.googleapis.com/token",
             scopes=[
-                "https://www.googleapis.com/auth/calendar.readonly",
+                "https://www.googleapis.com/auth/calendar.events",
                 "openid",
                 "email",
             ],
             extra_authorize_params={"access_type": "offline", "prompt": "consent"},
             userinfo_url="https://openidconnect.googleapis.com/v1/userinfo",
+        ),
+    ),
+    "github": Connector(
+        key="github",
+        name="GitHub",
+        icon="🐙",
+        category="Engineering",
+        description="Repos, pull requests, issues and code — for the Tech copilot.",
+        credentials_provider="github",
+        default_mcp_url="https://api.githubcopilot.com/mcp/",
+        oauth=OAuthConfig(
+            authorize_url="https://github.com/login/oauth/authorize",
+            token_url="https://github.com/login/oauth/access_token",
+            scopes=["repo", "read:org", "read:user"],
+            refreshable=False,
+            userinfo_url="https://api.github.com/user",
+            token_headers={"Accept": "application/json"},  # GitHub returns form-encoded otherwise
+        ),
+    ),
+    "jira": Connector(
+        key="jira",
+        name="Jira",
+        icon="🧩",
+        category="Engineering",
+        description="Issues, sprints, epics and projects from Jira — for the Tech copilot.",
+        credentials_provider="atlassian",  # ATLASSIAN_CLIENT_ID/SECRET (one app for Jira/Confluence)
+        default_mcp_url="https://mcp.atlassian.com/v1/sse",
+        mcp_transport="sse",
+        oauth=OAuthConfig(
+            authorize_url="https://auth.atlassian.com/authorize",
+            token_url="https://auth.atlassian.com/oauth/token",
+            scopes=["read:jira-work", "read:jira-user", "offline_access"],
+            extra_authorize_params={"audience": "api.atlassian.com", "prompt": "consent"},
+            userinfo_url="https://api.atlassian.com/me",
         ),
     ),
     "linkedin": Connector(

@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api, meetingSocket } from "@/lib/api";
-import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Action } from "@/lib/types";
+import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Action, MeetingPrepRecord } from "@/lib/types";
 import SuggestionCard from "@/components/SuggestionCard";
 import SummaryPanel from "@/components/SummaryPanel";
 import ApprovalsPanel from "@/components/ApprovalsPanel";
+import ScorecardPanel from "@/components/ScorecardPanel";
+import { Markdown } from "@/components/MeetingPrepPanel";
 
 export default function MeetingConsole() {
   const params = useParams();
@@ -22,14 +24,35 @@ export default function MeetingConsole() {
   const [thinking, setThinking] = useState(false);
   const [ending, setEnding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [recBusy, setRecBusy] = useState(false);
+  const [prep, setPrep] = useState<MeetingPrepRecord | null>(null);
+  const [prepOpen, setPrepOpen] = useState(false);
+
+  const flash = (m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 3000);
+  };
+  const openRecording = async () => {
+    setRecBusy(true);
+    try {
+      const r = await api.recording(id);
+      if (r.url) window.open(r.url, "_blank", "noopener");
+      else flash(r.status === "processing" ? "Recording is still processing — try again shortly." : "No recording available for this meeting.");
+    } catch {
+      flash("Couldn't load the recording.");
+    } finally {
+      setRecBusy(false);
+    }
+  };
+  const jumpTo = (sel: string) => document.querySelector(sel)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const refreshActions = () => api.listActions(id).then(setActions).catch(() => {});
   const proposeAction = async (action: Action) => {
     await api.proposeAction(id, action);
     refreshActions();
   };
-  const approveAction = async (aid: string) => {
-    await api.approveAction(aid);
+  const approveAction = async (aid: string, payload?: Record<string, unknown>) => {
+    await api.approveAction(aid, payload);
     refreshActions();
   };
   const rejectAction = async (aid: string) => {
@@ -58,6 +81,7 @@ export default function MeetingConsole() {
       setSegments(t);
       setSuggestions(s);
       api.listActions(id).then((acts) => alive && setActions(acts)).catch(() => {});
+      api.meetingPrepRecord(id).then((p) => alive && p.found && setPrep(p)).catch(() => {});
       if (m.status === "ended") {
         api.summary(id).then(setSummary).catch(() => {});
       }
@@ -159,12 +183,50 @@ export default function MeetingConsole() {
           <span className="led" />
           {status === "transcript_complete" ? "ready to wrap" : status}
         </span>
+        {prep?.found && (
+          <button
+            className={`btn ghost sm ${prepOpen ? "active" : ""}`}
+            onClick={() => setPrepOpen((v) => !v)}
+            title="Preparation notes researched before this meeting"
+          >
+            {prepOpen ? "▾ Prep notes" : "📋 Prep notes"}
+          </button>
+        )}
+        {meeting?.recall_bot_id && (
+          <button className="btn ghost sm" onClick={openRecording} disabled={recBusy} title="Open the meeting recording">
+            {recBusy ? "Opening…" : "📹 Recording"}
+          </button>
+        )}
+        <button className="btn ghost sm" onClick={() => jumpTo(".transcript-body")} title="Jump to transcript">
+          📄 Transcript
+        </button>
+        {summary && (
+          <button className="btn ghost sm" onClick={() => jumpTo(".summary-panel")} title="Jump to notes / summary">
+            📝 Notes
+          </button>
+        )}
         {status !== "ended" && (
           <button className="btn danger" onClick={endMeeting} disabled={ending}>
             {ending ? "Generating…" : "⏹  End & summarize"}
           </button>
         )}
       </div>
+
+      {prep?.found && prepOpen && (
+        <div className="prep-panel" style={{ borderRadius: 12, border: "1px solid var(--accent)", marginBottom: 18 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+            📋 Prepared before this meeting{prep.customer ? ` · ${prep.customer}` : ""}
+          </div>
+          <Markdown md={prep.markdown || ""} />
+          {(prep.sources?.length ?? 0) > 0 && (
+            <div className="prep-sources" style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+              {prep.sources!.map((s, i) => (
+                <span key={i} className="source-chip" title={s.detail}>{s.label}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="meta-strip" style={{ marginTop: 0, marginBottom: 18 }}>
         <div className="metric">
@@ -252,6 +314,8 @@ export default function MeetingConsole() {
       )}
 
       {summary && <SummaryPanel summary={summary} />}
+
+      {status === "ended" && <ScorecardPanel meetingId={id} />}
 
       {toast && <div className="toast">{toast}</div>}
     </main>

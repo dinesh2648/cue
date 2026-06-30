@@ -58,12 +58,17 @@ def propose(
     write: bool = True,
     autonomy: str = "approve",
 ) -> ProposedAction:
+    # The title column is varchar(255); keep the full text in the payload and store a
+    # display-safe title (LLM-generated next steps can run long).
+    display_title = title or ""
+    if len(display_title) > 255:
+        display_title = display_title[:252].rstrip() + "…"
     pa = ProposedAction(
         meeting_id=meeting_id,
         pack=pack,
         action_key=action_key,
         kind=kind,
-        title=title,
+        title=display_title,
         payload=payload or {},
         write=write,
         autonomy=autonomy,
@@ -71,8 +76,6 @@ def propose(
     )
     db.add(pa)
     db.commit()
-    if autonomy == "auto":  # opt-in autonomous mode executes immediately
-        approve(db, pa, approver="auto")
     return pa
 
 
@@ -93,16 +96,16 @@ def propose_from_suggestion_action(
     )
 
 
-def approve(db: Session, action: ProposedAction, approver: str) -> ProposedAction:
+async def approve(db: Session, action: ProposedAction, approver: str) -> ProposedAction:
     if action.status != "proposed":
         return action
     try:
-        action.result = _execute(db, action)
+        action.result = await _execute(db, action)
         action.status = "executed"
         action.error = None
     except Exception as exc:  # pragma: no cover - execution failure path
         action.status = "failed"
-        action.error = str(exc)
+        action.error = str(exc)[:500]
         log.warning("action execute failed key=%s: %s", action.action_key, exc)
     action.approver = approver
     action.decided_at = _now()
@@ -128,13 +131,62 @@ def reject(db: Session, action: ProposedAction, approver: str) -> ProposedAction
     return action
 
 
-def _execute(db: Session, action: ProposedAction) -> dict:
-    """Perform the write via the connector layer (mock CRM by default)."""
+def _record(db: Session, meeting_id: str, kind: str, payload: dict, status: str) -> CRMSyncRecord:
+    rec = CRMSyncRecord(meeting_id=meeting_id, object_type=kind, payload=payload, status=status)
+    db.add(rec)
+    db.commit()
+    return rec
+
+
+async def _token(db: Session, owner: str | None, provider: str) -> str | None:
+    if not owner:
+        return None
+    from ..connectors import manager
+
+    tok = await manager.get_access_token(db, owner, provider)
+    return None if (not tok or tok.startswith("demo-")) else tok
+
+
+async def _execute(db: Session, action: ProposedAction) -> dict:
+    """Perform the write — real connector if available, else record a draft (approve-then-act)."""
     meeting = db.get(Meeting, action.meeting_id)
+    owner = meeting.owner_user_id if meeting else None
     cid = meeting.crm_company_id if meeting else None
     p = action.payload or {}
     kind = action.kind
 
+    # ── Agentic connector writes (real, as the meeting owner) ────────────────
+    if kind == "notion_doc":
+        from ..integrations import notion
+
+        token = await _token(db, owner, "notion")
+        if token:
+            res = await notion.create_page(token, p.get("title") or action.title, p.get("body") or "")
+            return {"type": "notion_doc", "url": res.get("url"), "page_id": res.get("id")}
+        rec = _record(db, action.meeting_id, kind, p, "drafted")
+        return {"type": "notion_doc", "crm_id": rec.id, "status": "drafted — connect Notion (write) to auto-create"}
+
+    if kind == "reminder":
+        from ..integrations import google_calendar
+
+        token = await _token(db, owner, "google_calendar")
+        if token:
+            res = await google_calendar.create_event(token, p.get("title") or action.title, p.get("detail", ""))
+            return {"type": "reminder", "url": res.get("url")}
+        rec = _record(db, action.meeting_id, kind, p, "pending")
+        return {"type": "reminder", "crm_id": rec.id, "status": "connect Google Calendar to schedule"}
+
+    if kind == "jira_ticket":
+        from ..integrations import jira
+
+        token = await _token(db, owner, "jira")
+        if token:
+            res = await jira.create_issue(token, p.get("summary") or action.title, p.get("description", ""))
+            return {"type": "jira_ticket", "key": res.get("key"), "url": res.get("url")}
+        rec = _record(db, action.meeting_id, kind, p, "pending")
+        return {"type": "jira_ticket", "crm_id": rec.id, "status": "connect Jira to auto-create the ticket"}
+
+    # ── CRM writes (mock CRM layer) ──────────────────────────────────────────
     if kind == "note":
         rec = hubspot.create_note(db, action.meeting_id, cid, p.get("body") or action.title)
         return {"type": "note", "crm_id": rec.external_id}
@@ -145,8 +197,5 @@ def _execute(db: Session, action: ProposedAction) -> dict:
         rec = hubspot.save_email_draft(db, action.meeting_id, cid, p.get("draft") or p.get("body") or action.title)
         return {"type": "email", "crm_id": rec.id}
 
-    # document share / workflow / fallback — record the activity
-    rec = CRMSyncRecord(meeting_id=action.meeting_id, object_type=kind, payload=p, status="created")
-    db.add(rec)
-    db.commit()
+    rec = _record(db, action.meeting_id, kind, p, "created")
     return {"type": kind, "crm_id": rec.id, "url": p.get("url", "")}

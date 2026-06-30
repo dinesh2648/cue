@@ -60,10 +60,19 @@ def _record_sync(
     return rec
 
 
+def _meeting_org(db: Session, meeting_id: str) -> str | None:
+    """Tenant that owns a CRM write — derived from the meeting so reads stay org-scoped."""
+    from ..models import Meeting
+
+    m = db.get(Meeting, meeting_id)
+    return m.org_id if m else None
+
+
 def create_note(db: Session, meeting_id: str, company_id: str | None, body: str) -> CRMSyncRecord:
     obj = CRMObject(
         object_type="note",
         company_id=company_id,
+        org_id=_meeting_org(db, meeting_id),
         properties={"body": body, "source": "ai_copilot"},
         source="mock",
     )
@@ -80,6 +89,7 @@ def create_task(
     obj = CRMObject(
         object_type="task",
         company_id=company_id,
+        org_id=_meeting_org(db, meeting_id),
         properties={"title": title, "notes": notes, "status": "NOT_STARTED"},
         source="mock",
     )

@@ -7,6 +7,7 @@ export interface Meeting {
   rep_name: string;
   status: "scheduled" | "live" | "ended";
   crm_company_id: string | null;
+  recall_bot_id?: string | null;
   pack: string;
   created_at: string;
   ended_at: string | null;
@@ -64,6 +65,80 @@ export interface Connector {
   status: "connected" | "disconnected" | "error";
   account_label: string;
   error: string | null;
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  all_day: boolean;
+  attendees: string[];
+  organizer: string;
+  meeting_url: string;
+  html_link: string;
+}
+
+export interface UpcomingMeetings {
+  connected: boolean;
+  events: CalendarEvent[];
+  error: string | null;
+  detail?: string;
+}
+
+export interface MeetingPrep {
+  event_id: string;
+  title: string;
+  customer: string;
+  markdown: string;
+  sources: { label: string; type: string; detail: string; url: string }[];
+  engine: string;
+  generated_at: string | null;
+  cached: boolean;
+}
+
+export interface MeetingPrepRecord {
+  found: boolean;
+  title?: string;
+  customer?: string;
+  markdown?: string;
+  sources?: { label: string; type: string; detail: string; url: string }[];
+  engine?: string;
+  generated_at?: string | null;
+}
+
+export interface ScoreDimension {
+  name: string;
+  score: number;
+  comment: string;
+}
+export interface CoachingTip {
+  tip: string;
+  example: string;
+}
+export interface Scorecard {
+  status?: string;
+  rep_name: string;
+  overall_score: number;
+  headline: string;
+  dimensions: ScoreDimension[];
+  strengths: string[];
+  improvements: string[];
+  coaching_tips: CoachingTip[];
+  metrics: Record<string, number>;
+}
+export interface TeamRep {
+  rep_name: string;
+  calls: number;
+  avg_score: number;
+  dimensions: { name: string; score: number }[];
+  top_improvements: string[];
+  recent: { date: string; score: number }[];
+  trend: number;
+}
+export interface TeamCoaching {
+  scored_calls: number;
+  reps: TeamRep[];
 }
 
 export interface Summary {
@@ -132,12 +207,22 @@ export interface BillingInfo {
   plans: PlanInfo[];
 }
 
+export interface OrgMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  team: string;
+  manager_id: string | null;
+  manager_name: string | null;
+}
 export interface OrgInfo {
   id: string;
   name: string;
   plan: string;
   your_role: string;
-  members: { id: string; email: string; name: string; role: string }[];
+  can_manage: boolean;
+  members: OrgMember[];
 }
 
 export type WSEvent =

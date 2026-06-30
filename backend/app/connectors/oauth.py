@@ -1,7 +1,10 @@
-"""Generic OAuth 2.0 authorization-code flow, parameterized per connector."""
+"""Generic OAuth 2.0 authorization-code flow (with optional PKCE), per connector."""
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
+import secrets
 from urllib.parse import urlencode
 
 import httpx
@@ -12,7 +15,17 @@ log = logging.getLogger("copilot.oauth")
 _TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
-def build_authorize_url(provider: str, state: str) -> str:
+# ── PKCE (RFC 7636) — required by some providers (e.g. HubSpot MCP apps) ──────
+def new_code_verifier() -> str:
+    return base64.urlsafe_b64encode(secrets.token_bytes(48)).rstrip(b"=").decode()
+
+
+def code_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+def build_authorize_url(provider: str, state: str, challenge: str | None = None) -> str:
     c = CONNECTORS[provider]
     client_id, _ = client_credentials(provider)
     params = {
@@ -24,10 +37,13 @@ def build_authorize_url(provider: str, state: str) -> str:
     }
     if c.oauth.scopes:
         params["scope"] = " ".join(c.oauth.scopes)
+    if c.oauth.pkce and challenge:
+        params["code_challenge"] = challenge
+        params["code_challenge_method"] = "S256"
     return f"{c.oauth.authorize_url}?{urlencode(params)}"
 
 
-async def exchange_code(provider: str, code: str) -> dict:
+async def exchange_code(provider: str, code: str, code_verifier: str | None = None) -> dict:
     c = CONNECTORS[provider]
     client_id, client_secret = client_credentials(provider)
     data = {
@@ -35,7 +51,9 @@ async def exchange_code(provider: str, code: str) -> dict:
         "code": code,
         "redirect_uri": redirect_uri(provider),
     }
-    headers = {}
+    if c.oauth.pkce and code_verifier:
+        data["code_verifier"] = code_verifier
+    headers = dict(c.oauth.token_headers)
     if c.oauth.token_auth == "basic":
         auth = (client_id, client_secret)
     else:

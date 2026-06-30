@@ -24,6 +24,15 @@ from .simulator import get_scenario
 log = logging.getLogger("copilot.engine")
 
 _running: set[str] = set()
+# Keep references to fire-and-forget agent tasks so they aren't garbage-collected.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _schedule(coro) -> None:
+    """Run an agent turn in the background so transcript ingestion stays real-time."""
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 def _doc_catalog(db) -> list[dict]:
@@ -34,7 +43,15 @@ def _doc_catalog(db) -> list[dict]:
 async def process_utterance(
     meeting_id: str, speaker: str, role: str, text: str, ts: float | None = None
 ) -> None:
-    """Persist one transcript segment and, for customer turns, run the agent."""
+    """Persist+broadcast the transcript segment immediately (real-time), then run the
+    agent for customer turns in the BACKGROUND so the slow Claude/web loop never delays
+    the live transcript or the webhook response.
+    """
+    # `speaker` comes from the (3rd-party-controlled) Recall webhook; cap it to the column
+    # width so a long participant name can't crash the insert with truncation on Postgres.
+    speaker = (speaker or "Speaker")[:120]
+    text = text or ""
+
     db = SessionLocal()
     try:
         meeting = db.get(Meeting, meeting_id)
@@ -52,22 +69,43 @@ async def process_utterance(
         seg = TranscriptSegment(meeting_id=meeting_id, speaker=speaker, role=role, text=text, ts=ts)
         db.add(seg)
         db.commit()
+        seg_id = seg.id
 
         await manager.broadcast(
             meeting_id,
             {
                 "type": "transcript",
-                "data": {"id": seg.id, "speaker": speaker, "role": role, "text": text, "ts": ts},
+                "data": {"id": seg_id, "speaker": speaker, "role": role, "text": text, "ts": ts},
             },
         )
+    finally:
+        db.close()
 
-        if role != "customer":
+    if role == "customer":
+        _schedule(_run_agent_turn(meeting_id, seg_id, text))
+
+
+async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
+    """Intent → two-tier answer for one customer turn. Runs detached from ingestion."""
+    db = SessionLocal()
+    try:
+        meeting = db.get(Meeting, meeting_id)
+        if meeting is None:
             return
-
         pack = get_pack(meeting.pack)
 
-        # ── Intent (FR-003) — pack-specific taxonomy ─────────────────────────
-        intent_res = pack.detect(text)
+        # ── Layer 1: triage (FR-003) — does this turn need an answer? ────────
+        # Recent context (last few turns, excluding this one) helps resolve pronouns.
+        rows = db.scalars(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.meeting_id == meeting_id)
+            .order_by(TranscriptSegment.ts.desc())
+            .limit(7)
+        ).all()
+        recent = [f"{s.role}: {s.text}" for s in rows if s.id != seg_id][:6][::-1]
+
+        intent_res = await pack.classify(text, recent)
+        query = intent_res.query_text or text  # standalone query (pronouns resolved)
         await manager.broadcast(
             meeting_id,
             {
@@ -76,7 +114,7 @@ async def process_utterance(
                     "intent_type": intent_res.intent_type,
                     "family": intent_res.family,
                     "confidence": intent_res.confidence,
-                    "query_text": text,
+                    "query_text": query,
                     "actionable": intent_res.actionable,
                 },
             },
@@ -94,15 +132,15 @@ async def process_utterance(
         # Tier 1 — instant grounded answer (the SLA-critical path).
         t0 = time.perf_counter()
         fast = await pack.fast_answer(
-            db=db, meeting=meeting, text=text, intent=intent_res, doc_catalog=doc_catalog
+            db=db, meeting=meeting, text=query, intent=intent_res, doc_catalog=doc_catalog
         )
         fast_latency = int((time.perf_counter() - t0) * 1000)
 
         intent_row = Intent(
             meeting_id=meeting_id,
-            segment_id=seg.id,
+            segment_id=seg_id,
             intent_type=intent_res.intent_type,
-            query_text=text,
+            query_text=query,
             confidence=intent_res.confidence,
         )
         db.add(intent_row)
@@ -112,7 +150,7 @@ async def process_utterance(
             meeting_id=meeting_id,
             intent_id=intent_row.id,
             intent_type=intent_res.intent_type,
-            query_text=text,
+            query_text=query,
             answer=fast["answer"],
             evidence=fast["evidence"],
             sources=fast["sources"],
@@ -143,7 +181,7 @@ async def process_utterance(
         if deep_will_run:
             t1 = time.perf_counter()
             deep = await pack.deep_answer(
-                db=db, meeting=meeting, text=text, intent=intent_res, servers=servers
+                db=db, meeting=meeting, text=query, intent=intent_res, servers=servers
             )
             deep_latency = int((time.perf_counter() - t1) * 1000)
             if deep:
@@ -162,6 +200,8 @@ async def process_utterance(
                 meeting_id,
                 {"type": "suggestion_update", "data": _sugg_payload(sugg, deep_pending=False)},
             )
+    except Exception as exc:  # pragma: no cover - background task must not crash silently
+        log.exception("agent turn failed for meeting %s: %s", meeting_id, exc)
     finally:
         db.close()
 

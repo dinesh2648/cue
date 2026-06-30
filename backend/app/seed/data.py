@@ -197,7 +197,9 @@ def seed_if_empty(db: Session) -> dict:
     crm_count = db.scalar(select(CRMObject).limit(1))
     if crm_count is None:
         for row in _CRM:
-            db.add(CRMObject(source="mock", **row))
+            # Seeded demo CRM belongs to the dev workspace so it stays visible there
+            # (real tenants' CRM is org-scoped via the meeting that created it).
+            db.add(CRMObject(source="mock", org_id="dev_org", **row))
     doc_count = db.scalar(select(KnowledgeDoc).limit(1))
     if doc_count is None:
         for d in _DOCS:

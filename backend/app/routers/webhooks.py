@@ -1,9 +1,10 @@
 """Inbound webhooks (Recall.ai meeting-bot transcript stream)."""
 from __future__ import annotations
 
+import hmac
 import logging
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from ..billing import service as billing_service
@@ -18,6 +19,12 @@ router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 def _role(meeting: Meeting | None, speaker: str, is_host: bool) -> str:
     """Map a meeting participant to rep vs customer."""
+    import os
+
+    # Solo-test aid: treat every speaker as the customer so a single tester can see
+    # suggestions. Leave unset in production (host = rep, others = customer).
+    if os.getenv("RECALL_TREAT_ALL_AS_CUSTOMER", "").lower() in ("1", "true", "yes"):
+        return "customer"
     if is_host:
         return "rep"
     if meeting and meeting.rep_name and speaker:
@@ -27,7 +34,12 @@ def _role(meeting: Meeting | None, speaker: str, is_host: bool) -> str:
 
 
 @router.post("/recall")
-async def recall_webhook(request: Request, meeting_id: str = Query(...)) -> dict:
+async def recall_webhook(
+    request: Request, meeting_id: str = Query(...), token: str = Query(default="")
+) -> dict:
+    # Authenticate: the URL carries the per-meeting HMAC we issued at bot dispatch.
+    if not hmac.compare_digest(token, recall.webhook_token(meeting_id)):
+        raise HTTPException(403, "Invalid webhook token")
     body = await request.json()
     seg = recall.parse_transcript_event(body)
     if not seg:

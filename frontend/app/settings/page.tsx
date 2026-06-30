@@ -13,11 +13,39 @@ export default function SettingsPage() {
   const [org, setOrg] = useState<OrgInfo | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [autopilot, setAutopilot] = useState<boolean | null>(null);
 
   const load = useCallback(() => {
     api.billing().then(setBilling).catch(() => {});
     api.org().then(setOrg).catch(() => {});
+    api.me().then((m) => setAutopilot(!!m.autopilot)).catch(() => {});
   }, []);
+
+  const updateMember = async (id: string, patch: { role?: string; team?: string; manager_id?: string | null }) => {
+    try {
+      await api.updateMember(id, patch);
+      setToast("✓ Team updated");
+      setTimeout(() => setToast(null), 2000);
+      load();
+    } catch {
+      setToast("Couldn't update — owner/admin only.");
+      setTimeout(() => setToast(null), 2600);
+    }
+  };
+
+  const toggleAutopilot = async () => {
+    const next = !autopilot;
+    setAutopilot(next);
+    try {
+      await api.setAutopilot(next);
+      setToast(next ? "✓ Auto-pilot on — I'll join & summarize your external meetings" : "Auto-pilot off");
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setAutopilot(!next);
+      setToast("Couldn't update auto-pilot.");
+      setTimeout(() => setToast(null), 2600);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -63,6 +91,36 @@ export default function SettingsPage() {
   return (
     <main className="container">
       <h1 style={{ fontSize: 28, letterSpacing: "-0.025em", margin: "4px 0 18px" }}>Settings &amp; billing</h1>
+
+      {/* Auto-pilot */}
+      <div className="card pad" style={{ marginBottom: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div className="section-title" style={{ marginBottom: 4 }}>🤖 Auto-pilot my meetings</div>
+            <p style={{ color: "var(--muted)", fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
+              Automatically send the copilot to your upcoming <b>external</b> meetings (from your Google
+              Calendar), and auto-generate the summary, CRM actions and rep scorecard when each call
+              ends — no manual “send” or “end” clicks. Internal-only meetings are skipped.
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={!!autopilot}
+            className={`switch ${autopilot ? "on" : ""}`}
+            disabled={autopilot === null}
+            onClick={toggleAutopilot}
+            title="Toggle auto-pilot"
+          >
+            <span className="switch-knob" />
+          </button>
+        </div>
+        {autopilot && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--faint)" }}>
+            Requires a connected Google Calendar + a reachable backend (your deployed URL). The bot still
+            needs to be <b>admitted</b> from the meeting waiting room.
+          </div>
+        )}
+      </div>
 
       {u && billing && (
         <div className="card pad" style={{ marginBottom: 22 }}>
@@ -137,16 +195,60 @@ export default function SettingsPage() {
       {org && (
         <>
           <div className="section-title" style={{ marginTop: 28 }}>Team · {org.name}</div>
+          <p style={{ color: "var(--muted)", fontSize: 13, marginTop: -6, marginBottom: 14, lineHeight: 1.6 }}>
+            Set each teammate&apos;s <b>team</b> (which copilot joins their meetings — Sales or Tech),
+            their <b>role</b>, and their <b>manager</b> (managers see everything for their reports).
+          </p>
           <div className="card pad">
             <div className="team-list">
               {org.members.map((m) => (
                 <div key={m.id} className="team-row">
                   <span className="team-avatar">{(m.name || m.email || "?")[0].toUpperCase()}</span>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 140 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name || m.email || m.id}</div>
                     <div style={{ color: "var(--faint)", fontSize: 12.5 }}>{m.email}</div>
                   </div>
-                  <span className="badge fam-product" style={{ textTransform: "capitalize" }}>{m.role}</span>
+                  {org.can_manage ? (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <select
+                        className="member-select"
+                        defaultValue={m.team}
+                        title="Team → which copilot joins their meetings"
+                        onChange={(e) => updateMember(m.id, { team: e.target.value })}
+                      >
+                        <option value="sales">🟦 Sales</option>
+                        <option value="tech">🟩 Tech</option>
+                        <option value="ops">⬜ Ops</option>
+                      </select>
+                      <select
+                        className="member-select"
+                        defaultValue={m.role}
+                        title="Role"
+                        onChange={(e) => updateMember(m.id, { role: e.target.value })}
+                      >
+                        <option value="member">Member</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                        <option value="owner" disabled>Owner</option>
+                      </select>
+                      <select
+                        className="member-select"
+                        defaultValue={m.manager_id || ""}
+                        title="Manager"
+                        onChange={(e) => updateMember(m.id, { manager_id: e.target.value })}
+                      >
+                        <option value="">No manager</option>
+                        {org.members.filter((x) => x.id !== m.id).map((x) => (
+                          <option key={x.id} value={x.id}>↳ {x.name || x.email}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <span className={`badge ${m.team === "tech" ? "fam-security" : "fam-product"}`} style={{ textTransform: "capitalize" }}>{m.team}</span>
+                      <span className="badge fam-general" style={{ textTransform: "capitalize" }}>{m.role}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

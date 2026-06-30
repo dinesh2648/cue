@@ -8,7 +8,7 @@ SSO, billing, connectors, and meeting bots.
 - [2. Run it (3 ways)](#2-run-it-three-ways)
 - [3. Environment variables](#3-environment-variables-reference)
 - [4. Claude (the AI)](#4-claude-the-ai)
-- [5. Auth / SSO (Clerk)](#5-auth--sso-clerk)
+- [5. Auth / Sign in with Google](#5-auth--sign-in-with-google)
 - [6. Connectors (HubSpot, Drive, Gmail, Calendar, Notion, LinkedIn)](#6-connectors)
 - [7. Billing (Stripe) + plans](#7-billing-stripe--plans)
 - [8. Meeting capture (Recall.ai)](#8-meeting-capture-recallai)
@@ -45,7 +45,7 @@ cd backend && ./run.sh                       # venv + deps + seed + uvicorn :800
 
 # Terminal 2 — frontend
 cd frontend && npm install && npm run dev     # :3000
-# (config: frontend/.env.local — NEXT_PUBLIC_API_URL, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
+# (config: frontend/.env.local — NEXT_PUBLIC_API_URL; sign-in is configured backend-side)
 ```
 
 ### C) Open and use
@@ -73,7 +73,8 @@ Everything is optional; defaults give the zero-cred pilot.
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Real Claude | — / `claude-sonnet-4-6` |
 | `AGENT_ENGINE` | `auto`/`messages_mcp`/`agent_sdk`/`offline` | `auto` |
 | `TOKEN_ENCRYPTION_KEY` | Encrypts users' OAuth tokens — **required in prod** | dev key |
-| `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` / `CLERK_ISSUER` | SSO | — (DEV mode) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | "Sign in with Google" (also powers Google connectors) | — (DEV mode) |
+| `SESSION_SECRET` | Signs session JWTs — set in prod | falls back to `TOKEN_ENCRYPTION_KEY` |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_ENTERPRISE` | Billing | — (dev free) |
 | `HUBSPOT_CLIENT_ID` / `_SECRET`, `GOOGLE_CLIENT_ID` / `_SECRET`, `NOTION_CLIENT_ID` / `_SECRET`, `LINKEDIN_CLIENT_ID` / `_SECRET` | Connector OAuth apps | — (demo consent) |
 | `*_MCP_URL` (`HUBSPOT_MCP_URL`, `NOTION_MCP_URL`, `GOOGLE_DRIVE_MCP_URL`, `GMAIL_MCP_URL`, `GOOGLE_CALENDAR_MCP_URL`, `LINKEDIN_MCP_URL`) | Remote MCP endpoints | provider defaults where they exist |
@@ -95,19 +96,28 @@ the app still works. (Local dev tip: if you're signed into the `claude` CLI, set
 
 ---
 
-## 5. Auth / SSO (Clerk)
+## 5. Auth / Sign in with Google
 
-Without Clerk, Cue runs in **DEV mode**: a single seeded user, no login — fine for a closed
-pilot. For real multi-user SSO:
+Without Google credentials, Cue runs in **DEV mode**: a single seeded user, no login — fine
+for a closed pilot. To enable real **"Sign in with Google"**:
 
-1. Create a Clerk application.
-2. Backend: `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER`
-   (e.g. `https://your-app.clerk.accounts.dev`).
-3. Frontend: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (Docker: passed automatically from
-   `CLERK_PUBLISHABLE_KEY`).
-4. Set `TOKEN_ENCRYPTION_KEY` to a strong secret.
+1. In [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services →
+   Credentials**, create an **OAuth 2.0 Client ID** (type: *Web application*).
+2. Under **Authorized redirect URIs**, add the sign-in callback (HTTPS in production):
+   ```
+   {APP_BASE_URL}/api/auth/google/callback
+   ```
+   > Tip: this is the **same** OAuth client used by the Google connectors — add their
+   > redirect URIs here too (see §6) so one app covers login + Drive/Gmail/Calendar.
+3. Backend env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a strong `SESSION_SECRET`
+   (signs session tokens) + `TOKEN_ENCRYPTION_KEY` (encrypts connector tokens).
+4. Restart the backend. The frontend automatically shows the **Continue with Google** screen
+   (it reads `/api/auth/config`) — no frontend env needed.
 
-Each signed-in user gets a workspace (Organization); roles are owner/admin/member.
+**How it works:** Google redirects back → the backend verifies the user and issues its own
+short-lived **session JWT** (HS256) → the browser stores it and sends it as a Bearer token.
+Users are grouped into **one workspace per email domain** (everyone `@acme.com` shares a
+tenant); the first user in a new workspace is its **owner**, later joiners are **members**.
 
 ---
 
@@ -141,10 +151,10 @@ Set the client id/secret env vars and add this **redirect URI** in the provider'
 | Notion | `notion` | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | Hosted MCP default set. |
 | LinkedIn | `linkedin` | `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` | Basic profile only via standard OAuth; richer data needs a partner/provider MCP. |
 
-> **Google:** the three Google connectors share **one** Google OAuth app — register **all
-> three** redirect URIs (`…/google_drive/callback`, `…/gmail/callback`,
-> `…/google_calendar/callback`) and add the matching scopes. Redirect URIs must be HTTPS in
-> production.
+> **Google:** sign-in and the three Google connectors share **one** Google OAuth app —
+> register **all** of these redirect URIs on it: `…/api/auth/google/callback` (login),
+> `…/google_drive/callback`, `…/gmail/callback`, `…/google_calendar/callback`, and add the
+> matching scopes. Redirect URIs must be HTTPS in production.
 
 ### MCP servers
 HubSpot and Notion have hosted MCP servers (defaults pre-set). For Google/LinkedIn (no

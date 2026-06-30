@@ -16,7 +16,7 @@ from .knowledge.store import index
 from .models import KnowledgeDoc, Meeting, Suggestion
 from .realtime.engine import process_utterance
 from .realtime.manager import manager
-from .routers import account, actions, billing, connectors, crm, knowledge, meetings, webhooks
+from .routers import account, actions, auth, billing, calendar, connectors, crm, knowledge, meetings, webhooks
 from .security.auth import user_from_token
 from .seed.data import seed_if_empty
 
@@ -32,8 +32,22 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 log = logging.getLogger("copilot")
 
 
+def _check_production_secrets() -> None:
+    """Fail fast in production: never run with the insecure dev signing/encryption key."""
+    if settings.google_login_enabled:
+        if not settings.session_secret and not settings.token_encryption_key:
+            raise RuntimeError(
+                "Refusing to start: Google login is enabled but SESSION_SECRET / "
+                "TOKEN_ENCRYPTION_KEY are unset — session JWTs would use the insecure dev key. "
+                "Set SESSION_SECRET and TOKEN_ENCRYPTION_KEY."
+            )
+        if not settings.token_encryption_key:
+            log.warning("TOKEN_ENCRYPTION_KEY unset — connector tokens use a derived key; set it explicitly.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _check_production_secrets()
     init_db()
     db = SessionLocal()
     try:
@@ -54,15 +68,29 @@ async def lifespan(app: FastAPI):
         len(index.chunks),
         settings.llm_provider,
     )
-    yield
+
+    # Auto-pilot loop (auto-join + auto-summarize). No-ops when no autopilot users / no Recall.
+    import asyncio
+
+    from . import autopilot
+
+    ap_task = asyncio.create_task(autopilot.run_loop())
+    try:
+        yield
+    finally:
+        ap_task.cancel()
 
 
 app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
 
+# Credentialed CORS can't use a wildcard origin — if someone sets CORS_ORIGINS=*,
+# drop credentials rather than emit an invalid/unsafe policy.
+_cors_origins = settings.cors_origin_list
+_cors_credentials = "*" not in _cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -78,6 +106,9 @@ async def rate_limit(request: Request, call_next):
         return await call_next(request)
     ip = request.client.host if request.client else "anon"
     window = int(time.time() // 60)
+    if len(_rate_window) > 10000:  # bound memory: drop only entries from past windows
+        for k in [k for k, (w, _) in _rate_window.items() if w != window]:
+            del _rate_window[k]
     win, count = _rate_window.get(ip, (window, 0))
     count = count + 1 if win == window else 1
     _rate_window[ip] = (window, count)
@@ -87,7 +118,9 @@ async def rate_limit(request: Request, call_next):
 
 
 app.include_router(account.router)
+app.include_router(auth.router)
 app.include_router(billing.router)
+app.include_router(calendar.router)
 app.include_router(connectors.router)
 app.include_router(actions.router)
 app.include_router(meetings.router)
@@ -133,13 +166,21 @@ def metrics() -> dict:
 
 @app.websocket("/ws/meetings/{meeting_id}")
 async def meeting_ws(ws: WebSocket, meeting_id: str, token: str | None = Query(default=None)) -> None:
-    # Authorize: the connecting user must own the meeting (lenient in DEV mode).
+    # Authorize: the connecting user must be allowed to see this meeting (same RBAC as REST).
     db = SessionLocal()
     try:
         user = user_from_token(db, token)
         meeting = db.get(Meeting, meeting_id)
         if not settings.dev_mode:
-            if user is None or (meeting and meeting.owner_user_id and meeting.owner_user_id != user.id):
+            from .security.auth import visible_user_ids
+
+            allowed = bool(
+                user and meeting and (
+                    meeting.owner_user_id in visible_user_ids(db, user)
+                    or (user.email and user.email in (meeting.attendees or []))
+                )
+            )
+            if not allowed:
                 await ws.close(code=4403)
                 return
     finally:

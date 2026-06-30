@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
-import type { Meeting, Metrics } from "@/lib/types";
+import type { Meeting, Metrics, UpcomingMeetings, CalendarEvent } from "@/lib/types";
+import MeetingPrepPanel from "@/components/MeetingPrepPanel";
 
 const PIPELINE = [
   { icon: "🎧", title: "Listen", sub: "Live Google Meet transcript" },
@@ -23,14 +24,56 @@ export default function Home() {
   const [recallEnabled, setRecallEnabled] = useState(false);
   const [meetUrl, setMeetUrl] = useState("");
   const [joining, setJoining] = useState(false);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
   const [limitMsg, setLimitMsg] = useState<string | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingMeetings | null>(null);
+  const [recBusy, setRecBusy] = useState<string | null>(null);
+  const [prepOpen, setPrepOpen] = useState<Record<string, boolean>>({});
+
+  const openRecording = async (mid: string) => {
+    setRecBusy(mid);
+    try {
+      const r = await api.recording(mid);
+      if (r.url) window.open(r.url, "_blank", "noopener");
+      else alert(r.status === "processing" ? "Recording is still processing — try again shortly." : "No recording available for this meeting.");
+    } catch {
+      alert("Couldn't load the recording.");
+    } finally {
+      setRecBusy(null);
+    }
+  };
 
   useEffect(() => {
-    api.listMeetings().then(setMeetings).catch(() => {});
     api.metrics().then(setMetrics).catch(() => {});
     api.health().then(setHealth).catch(() => {});
     api.authConfig().then((c) => setRecallEnabled(c.recall_enabled)).catch(() => {});
+    // Poll meetings + calendar so a copilot that auto-joins shows up without a manual refresh.
+    const refresh = () => {
+      api.listMeetings().then(setMeetings).catch(() => {});
+      api.upcomingMeetings().then(setUpcoming).catch(() => {});
+    };
+    refresh();
+    const t = setInterval(refresh, 20000);
+    return () => clearInterval(t);
   }, []);
+
+  const liveMeetings = meetings.filter((m) => m.status === "live");
+
+  const sendToEvent = async (ev: CalendarEvent) => {
+    if (!ev.meeting_url) return;
+    setJoiningId(ev.id);
+    setLimitMsg(null);
+    try {
+      const m = await api.joinLive(ev.meeting_url, {
+        title: ev.title,
+        customer_contact: ev.attendees.find((a) => a !== ev.organizer) || "",
+      });
+      router.push(`/meeting/${m.id}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) setLimitMsg(e.detail);
+      setJoiningId(null);
+    }
+  };
 
   const joinLive = async () => {
     if (!meetUrl.trim()) return;
@@ -162,6 +205,95 @@ export default function Home() {
         </div>
       </section>
 
+      {liveMeetings.length > 0 && (
+        <section style={{ marginBottom: 30 }}>
+          <div className="section-title">🔴 Live now</div>
+          <div className="meeting-list">
+            {liveMeetings.map((m) => (
+              <div key={m.id} className="meeting-row" style={{ borderColor: "var(--accent)" }}>
+                <span className="led" style={{ background: "var(--red, #f87171)" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="title">{m.title}</div>
+                  <div className="sub">
+                    {m.customer_company || m.customer_contact || "in progress"}
+                    {m.recall_bot_id ? " · 🤖 AL Copilot dispatched" : ""}
+                  </div>
+                </div>
+                <Link href={`/meeting/${m.id}`} className="btn primary sm">
+                  Open live transcript →
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section style={{ marginBottom: 30 }}>
+        <div className="section-title">Upcoming meetings · Google Calendar</div>
+        {upcoming === null ? (
+          <div className="card empty">Loading your calendar…</div>
+        ) : !upcoming.connected ? (
+          <div className="card empty">
+            <Link href="/connections" style={{ color: "var(--accent)", fontWeight: 700 }}>Connect Google Calendar</Link>{" "}
+            to see your upcoming meetings here and send the copilot in one click.
+          </div>
+        ) : upcoming.error ? (
+          <div className="card empty">
+            {upcoming.error === "api_disabled" ? (
+              <>
+                Calendar connected, but the <b>Google Calendar API</b> isn&apos;t enabled in your Google Cloud
+                project. Enable it (APIs &amp; Services → Library → Google Calendar API), then reload.
+              </>
+            ) : upcoming.error === "demo_connection" ? (
+              <>This is a demo connection. Reconnect Google Calendar with your <b>real Google account</b> to see live events.</>
+            ) : upcoming.error === "permission" ? (
+              <>Calendar connected, but access was denied. Reconnect and grant calendar read permission.</>
+            ) : (
+              <>Couldn&apos;t load your calendar right now. Try reconnecting Google Calendar.</>
+            )}
+          </div>
+        ) : upcoming.events.length === 0 ? (
+          <div className="card empty">No meetings on your calendar in the next 30 days.</div>
+        ) : (
+          <div className="meeting-list">
+            {upcoming.events.map((ev) => (
+              <div key={ev.id} className={`meeting-card ${prepOpen[ev.id] ? "open" : ""}`}>
+                <div className="meeting-row">
+                  <span style={{ fontSize: 20 }}>{ev.meeting_url ? "📹" : "📅"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="title">{ev.title}</div>
+                    <div className="sub">
+                      {ev.start ? new Date(ev.start).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: ev.all_day ? undefined : "numeric", minute: ev.all_day ? undefined : "2-digit" }) : "—"}
+                      {ev.attendees.length > 0 && ` · ${ev.attendees.length} attendee${ev.attendees.length > 1 ? "s" : ""}`}
+                    </div>
+                  </div>
+                  <button
+                    className={`btn sm ${prepOpen[ev.id] ? "primary" : ""}`}
+                    title="Preparation notes — researched from your CRM, docs, emails & prior meetings"
+                    onClick={() => setPrepOpen((o) => ({ ...o, [ev.id]: !o[ev.id] }))}
+                  >
+                    {prepOpen[ev.id] ? "▾ Prep notes" : "📋 Prep notes"}
+                  </button>
+                  {ev.meeting_url ? (
+                    <button
+                      className="btn primary sm"
+                      disabled={!recallEnabled || joiningId === ev.id}
+                      title={recallEnabled ? "Send the copilot to this meeting" : "Set RECALL_API_KEY to enable live capture"}
+                      onClick={() => sendToEvent(ev)}
+                    >
+                      {joiningId === ev.id ? "Dispatching…" : "🤖 Send copilot"}
+                    </button>
+                  ) : (
+                    <span className="source-chip" title="No video link found on this event">no link</span>
+                  )}
+                </div>
+                {prepOpen[ev.id] && <MeetingPrepPanel eventId={ev.id} />}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section>
         <div className="section-title">Recent meetings</div>
         {meetings.length === 0 ? (
@@ -172,19 +304,32 @@ export default function Home() {
         ) : (
           <div className="meeting-list">
             {meetings.map((m) => (
-              <Link key={m.id} href={`/meeting/${m.id}`} className="meeting-row">
-                <span style={{ fontSize: 20 }}>{m.platform === "google_meet" ? "📹" : "💬"}</span>
-                <div style={{ flex: 1 }}>
-                  <div className="title">{m.title}</div>
-                  <div className="sub">
-                    {m.customer_company || "—"} · {new Date(m.created_at).toLocaleString()}
+              <div key={m.id} className="meeting-row">
+                <Link
+                  href={`/meeting/${m.id}`}
+                  style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}
+                >
+                  <span style={{ fontSize: 20 }}>{m.platform === "google_meet" ? "📹" : "💬"}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="title">{m.title}</div>
+                    <div className="sub">
+                      {m.customer_company || "—"} · {new Date(m.created_at).toLocaleString()}
+                    </div>
                   </div>
-                </div>
+                </Link>
                 <span className={`pill ${m.status}`}>
                   <span className="led" />
                   {m.status}
                 </span>
-              </Link>
+                {m.recall_bot_id && (
+                  <button className="btn ghost sm" disabled={recBusy === m.id} onClick={() => openRecording(m.id)} title="Open recording">
+                    {recBusy === m.id ? "…" : "📹 Recording"}
+                  </button>
+                )}
+                <Link href={`/meeting/${m.id}`} className="btn ghost sm" title="Transcript & notes">
+                  📝 Notes
+                </Link>
+              </div>
             ))}
           </div>
         )}

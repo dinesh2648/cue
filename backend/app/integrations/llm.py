@@ -26,21 +26,27 @@ async def llm_complete(
     *,
     max_tokens: int = 800,
     temperature: float = 0.2,
+    timeout: float | None = None,
 ) -> str | None:
-    """Return generated text, or None if no provider is configured / call fails."""
+    """Return generated text, or None if no provider is configured / call fails.
+
+    `timeout` overrides the default read timeout — large generations (e.g. the
+    post-meeting summary) need more than the default 20s.
+    """
     provider = settings.llm_provider
+    to = httpx.Timeout(timeout, connect=5.0) if timeout else _TIMEOUT
     try:
         if provider == "anthropic":
-            return await _anthropic(system, user, max_tokens, temperature)
+            return await _anthropic(system, user, max_tokens, temperature, to)
         if provider == "openai":
-            return await _openai(system, user, max_tokens, temperature)
+            return await _openai(system, user, max_tokens, temperature, to)
     except Exception as exc:  # pragma: no cover - network failure path
-        log.warning("LLM call failed (%s); using offline fallback: %s", provider, exc)
+        log.warning("LLM call failed (%s); using offline fallback: %r", provider, exc)
     return None
 
 
-async def _anthropic(system: str, user: str, max_tokens: int, temperature: float) -> str:
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+async def _anthropic(system: str, user: str, max_tokens: int, temperature: float, timeout=_TIMEOUT) -> str:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -61,8 +67,8 @@ async def _anthropic(system: str, user: str, max_tokens: int, temperature: float
         return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
 
 
-async def _openai(system: str, user: str, max_tokens: int, temperature: float) -> str:
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+async def _openai(system: str, user: str, max_tokens: int, temperature: float, timeout=_TIMEOUT) -> str:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},

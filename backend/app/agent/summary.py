@@ -112,27 +112,111 @@ def _email(meeting: dict, concerns: list[str], actions: list[str]) -> str:
     )
 
 
+_SUMMARY_SYSTEM = (
+    "You are a senior sales operations assistant writing the post-meeting brief. You are given the "
+    "CURRENT meeting transcript, summaries of PREVIOUS meetings with this SAME client, the CRM "
+    "snapshot, and relevant enterprise documents. Synthesize ALL of it — connect this call to the "
+    "history (what progressed, stalled, or changed since last time).\n"
+    "Return ONLY a JSON object with these keys:\n"
+    "- executive_summary: 3-5 sentences. What happened this call and how it moves the relationship "
+    "vs. prior conversations. Specific and grounded.\n"
+    "- customer_concerns: array of the customer's actual concerns/questions raised this call.\n"
+    "- key_decisions: array of concrete decisions or agreements reached.\n"
+    "- risks: array of risks to the deal (open tickets, unsigned contract, unresolved items, stalls).\n"
+    "- action_items: array of specific next steps for the rep (your side), each ONE concise "
+    "sentence (max ~140 chars).\n"
+    "- follow_up_email: a professional recap email to the customer referencing the ACTUAL discussion "
+    "and concrete next steps. Start with a 'Subject:' line. Plain text, no markdown.\n"
+    "Ground every point strictly in the material provided — never invent facts, names, or numbers. "
+    "When previous meetings are provided, explicitly build on them. Output JSON only."
+)
+
+
+def _crm_brief(crm: dict) -> str:
+    deal = (crm.get("deals") or [{}])[0]
+    lines = []
+    for k in ("dealstage", "contract_status", "amount", "closedate", "go_live_date",
+              "renewal_date", "security_questionnaire_status"):
+        if deal.get(k):
+            lines.append(f"  {k}: {deal[k]}")
+    if crm.get("open_ticket_count") is not None:
+        lines.append(f"  open_tickets: {crm.get('open_ticket_count')}")
+    for t in (crm.get("tickets") or [])[:5]:
+        lines.append(f"  ticket {t.get('id')}: {t.get('subject')} [{t.get('status')}/{t.get('priority')}]")
+    return "\n".join(lines) or "  (no CRM data on file)"
+
+
+def _history_brief(history: list[dict]) -> str:
+    if not history:
+        return "  None on record — this appears to be the first meeting with this client."
+    out = []
+    for h in history:
+        line = f"  • [{h.get('date', '')}] {h.get('title', 'Meeting')}: {h.get('summary', '') or '(no summary)'}"
+        if h.get("decisions"):
+            line += "\n      decisions: " + "; ".join(h["decisions"][:4])
+        if h.get("open_actions"):
+            line += "\n      action items: " + "; ".join(h["open_actions"][:4])
+        out.append(line)
+    return "\n".join(out)
+
+
+def _build_context(meeting, intents, suggestions, crm, transcript, history, docs) -> str:
+    topics = sorted({i["intent_type"] for i in intents if i.get("intent_type") and i["intent_type"] != "general"})
+    answers = [s.get("answer", "") for s in suggestions if s.get("answer")]
+    docs_block = "\n".join(f"  • {d.get('title')}: {(d.get('snippet') or '')[:160]}" for d in docs) or "  (none)"
+    return (
+        f"CLIENT: {meeting.get('customer_company', 'Unknown')}"
+        f" | Contact: {meeting.get('customer_contact', '—')}"
+        f" | Rep: {meeting.get('rep_name', '—')}\n\n"
+        f"PREVIOUS MEETINGS WITH THIS CLIENT (most recent first):\n{_history_brief(history)}\n\n"
+        f"CRM SNAPSHOT:\n{_crm_brief(crm)}\n\n"
+        f"RELEVANT ENTERPRISE DOCUMENTS:\n{docs_block}\n\n"
+        f"THIS MEETING — topics the customer raised: {', '.join(topics) or 'general discussion'}\n"
+        f"THIS MEETING — answers the copilot gave:\n"
+        + ("\n".join(f"  • {a[:200]}" for a in answers[:8]) or "  (none)")
+        + f"\n\nCURRENT MEETING TRANSCRIPT:\n{transcript[:9000]}"
+    )
+
+
+def _as_list(v) -> list[str] | None:
+    if isinstance(v, list):
+        items = [str(x).strip() for x in v if str(x).strip()]
+        return items or None
+    return None
+
+
 async def generate_summary(
-    meeting: dict, intents: list[dict], suggestions: list[dict], crm: dict, transcript: str
+    meeting: dict,
+    intents: list[dict],
+    suggestions: list[dict],
+    crm: dict,
+    transcript: str,
+    history: list[dict] | None = None,
+    docs: list[dict] | None = None,
 ) -> dict:
-    result = _heuristic(meeting, intents, suggestions, crm)
+    """Synthesize the post-meeting brief from the current transcript, prior meetings with the
+    same client, the CRM snapshot, and enterprise docs. Heuristic baseline is the fallback."""
+    base = _heuristic(meeting, intents, suggestions, crm)
 
     raw = await llm_complete(
-        system=(
-            "You are a sales operations assistant. Given a meeting transcript and a draft summary, "
-            "return ONLY a JSON object with keys: executive_summary (string), follow_up_email (string). "
-            "Keep the email professional and specific to the transcript. No markdown, JSON only."
-        ),
-        user=f"Transcript:\n{transcript[:6000]}\n\nDraft summary:\n{json.dumps(result)[:2000]}",
-        max_tokens=900,
+        system=_SUMMARY_SYSTEM,
+        user=_build_context(meeting, intents, suggestions, crm, transcript, history or [], docs or []),
+        max_tokens=1800,
+        temperature=0.3,
+        timeout=60.0,  # large structured generation — well above the default 20s
     )
-    if raw:
-        try:
-            parsed = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
-            if parsed.get("executive_summary"):
-                result["executive_summary"] = parsed["executive_summary"]
-            if parsed.get("follow_up_email"):
-                result["follow_up_email"] = parsed["follow_up_email"]
-        except (ValueError, json.JSONDecodeError):
-            pass
-    return result
+    if not raw:
+        return base
+    try:
+        parsed = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+    except (ValueError, json.JSONDecodeError):
+        return base
+
+    return {
+        "executive_summary": (parsed.get("executive_summary") or "").strip() or base["executive_summary"],
+        "key_decisions": _as_list(parsed.get("key_decisions")) or base["key_decisions"],
+        "risks": _as_list(parsed.get("risks")) or base["risks"],
+        "action_items": _as_list(parsed.get("action_items")) or base["action_items"],
+        "customer_concerns": _as_list(parsed.get("customer_concerns")) or base["customer_concerns"],
+        "follow_up_email": (parsed.get("follow_up_email") or "").strip() or base["follow_up_email"],
+    }

@@ -139,7 +139,11 @@ def handle_webhook(db: Session, payload: bytes, sig_header: str) -> bool:
     if not _verify_signature(payload, sig_header):
         log.warning("stripe webhook signature invalid")
         return False
-    event = json.loads(payload)
+    try:
+        event = json.loads(payload)
+    except (ValueError, TypeError):
+        log.warning("stripe webhook body was not valid JSON")
+        return False
     etype = event.get("type", "")
     obj = event.get("data", {}).get("object", {})
     org_id = (obj.get("metadata") or {}).get("org_id") or obj.get("client_reference_id")

@@ -3,16 +3,25 @@ from __future__ import annotations
 
 from .base import CopilotPack, PackManifest
 from .sales import SalesPack
+from .tech import TechPack
 
 _sales = SalesPack()
+_tech = TechPack()
 
 PACKS: dict[str, CopilotPack] = {
     _sales.manifest.key: _sales,
-    # "developer": DeveloperPack(),   # see docs/PLATFORM_EXTENSIBILITY.md
-    # "product":   ProductPack(),
+    _tech.manifest.key: _tech,
+    # "product":   ProductPack(),     # see docs/PLATFORM_EXTENSIBILITY.md
 }
 
 DEFAULT_PACK = "sales"
+
+# Employee team → which Copilot Pack drives their meetings.
+_TEAM_PACK = {"sales": "sales", "tech": "tech", "ops": "sales"}
+
+
+def pack_for_team(team: str | None) -> str:
+    return _TEAM_PACK.get((team or "sales").lower(), "sales")
 
 
 def get_pack(key: str | None) -> CopilotPack:

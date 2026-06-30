@@ -18,7 +18,7 @@ the platform is shared; only the *triggers, tools, flow, and actions* differ per
 ```
 ┌─────────────────────── SHARED SUBSTRATE (built today) ────────────────────────┐
 │ Meeting capture (Recall.ai / simulator) · live transcript · realtime WS         │
-│ Clerk SSO · per-user MCP connectors · OAuth + encrypted token vault · audit log │
+│ Google sign-in · per-user MCP connectors · OAuth + token vault · audit log      │
 │ Agent runtime (Claude Agent SDK + Anthropic MCP) · two-tier latency             │
 │ Action/approval framework · multi-tenant scoping                                │
 └──────────────────────────────────┬──────────────────────────────────────────────┘
@@ -217,7 +217,7 @@ immediately and unlock everything else.
 
 ## 10. What's reused vs. new
 
-**Reused unchanged:** meeting capture · transcript · realtime WS · Clerk SSO · per-user MCP
+**Reused unchanged:** meeting capture · transcript · realtime WS · Google sign-in · per-user MCP
 connectors · token vault · audit log · agent runtime (Claude Agent SDK + MCP) · two-tier
 latency · UI shell.
 

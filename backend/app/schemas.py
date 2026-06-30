@@ -9,13 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ─── Meetings ────────────────────────────────────────────────────────────────
 class MeetingCreate(BaseModel):
-    title: str = "Untitled meeting"
-    platform: str = "google_meet"
-    customer_company: str = ""
-    customer_contact: str = ""
-    rep_name: str = ""
-    crm_company_id: str | None = None
-    pack: str = "sales"
+    # Length caps match the DB columns (String(255)/(32)) so over-long input is rejected
+    # with a 422 instead of crashing the insert with StringDataRightTruncation on Postgres.
+    title: str = Field("Untitled meeting", max_length=255)
+    platform: str = Field("google_meet", max_length=32)
+    customer_company: str = Field("", max_length=255)
+    customer_contact: str = Field("", max_length=255)
+    rep_name: str = Field("", max_length=255)
+    crm_company_id: str | None = Field(None, max_length=64)
+    pack: str = Field("sales", max_length=32)
     scenario: str | None = None  # name of a seeded simulator scenario
 
 
@@ -29,6 +31,7 @@ class MeetingOut(BaseModel):
     rep_name: str
     status: str
     crm_company_id: str | None
+    recall_bot_id: str | None = None
     pack: str
     created_at: datetime
     ended_at: datetime | None

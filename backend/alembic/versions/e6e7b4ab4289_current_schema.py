@@ -1,8 +1,8 @@
-"""initial schema
+"""current_schema
 
-Revision ID: 6a8901e8c21b
+Revision ID: e6e7b4ab4289
 Revises: 
-Create Date: 2026-06-22 14:06:59.141398
+Create Date: 2026-06-24 11:37:20.799967
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '6a8901e8c21b'
+revision: str = 'e6e7b4ab4289'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -149,6 +149,8 @@ def upgrade() -> None:
     sa.Column('latency_ms', sa.Integer(), nullable=False),
     sa.Column('deep_latency_ms', sa.Integer(), nullable=False),
     sa.Column('engine', sa.String(length=24), nullable=False),
+    sa.Column('grounded', sa.Boolean(), nullable=False),
+    sa.Column('access_scope', sa.String(length=16), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['meeting_id'], ['meetings.id'], ),
     sa.PrimaryKeyConstraint('id')

@@ -35,7 +35,7 @@ Built to the **AI Sales Meeting Copilot Platform PRD** (MVP scope, FR-001 → FR
 | FR-005 Suggested responses (Answer · Source · Confidence) | ✅ grounded, cited, scored |
 | FR-006 Action recommendations | ✅ intent-driven next-best-actions |
 | FR-007 Post-meeting automation (summary · CRM notes · follow-up email) | ✅ auto-generated, one-click CRM sync |
-| Security: SSO / RBAC / audit / PII redaction | ✅ Clerk SSO, per-user data isolation, encrypted token vault, audit log |
+| Security: SSO / RBAC / audit / PII redaction | ✅ Google sign-in, per-user data isolation, encrypted token vault, audit log |
 | **Multi-tenant connectors** (per-employee OAuth) | ✅ HubSpot · Google Drive · Gmail · Notion via remote MCP + OAuth 2.1 |
 | **Live, permission-scoped retrieval** | ✅ Claude agentic loop over each employee's own MCP tools — sees only what they can |
 
@@ -51,7 +51,7 @@ Built to the **AI Sales Meeting Copilot Platform PRD** (MVP scope, FR-001 → FR
 | Storage | PostgreSQL | ✅ SQLAlchemy: SQLite by default, Postgres via `DATABASE_URL` |
 | Agent runtime | LangGraph | ✅ **Claude** agentic loop via Anthropic's native MCP connector |
 | Connectors | (Phase 2) | ✅ per-employee OAuth → **remote MCP** (HubSpot/Drive/Gmail/Notion) |
-| Auth | SSO / RBAC | ✅ **Clerk** SSO + per-user token vault (Fernet); DEV-mode fallback |
+| Auth | SSO / RBAC | ✅ **Google sign-in** + per-user token vault (Fernet); DEV-mode fallback |
 | Observability | OpenTelemetry / Prometheus | ⚙️ structured logging + `/metrics` latency counters |
 
 **Runs with zero credentials** (DEV mode: single user, seeded data, offline answers).

@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepRecord, Scorecard, TeamCoaching } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -13,7 +13,8 @@ export class ApiError extends Error {
 export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export const WS_BASE = API.replace(/^http/, "ws");
 
-// Auth token bridge — Clerk sets this in real mode; null in dev mode.
+// Auth token bridge — the AuthProvider sets this to read the session token
+// (issued after Google sign-in) from localStorage; null in dev mode.
 type TokenGetter = () => Promise<string | null>;
 let _tokenGetter: TokenGetter | null = null;
 export function setTokenGetter(fn: TokenGetter | null) {
@@ -50,10 +51,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   authConfig: () =>
-    request<{ dev_mode: boolean; clerk_publishable_key: string | null; agent_engine: string; llm_provider: string; recall_enabled: boolean }>(
+    request<{ dev_mode: boolean; auth_mode: string; google_login_url: string | null; agent_engine: string; llm_provider: string; recall_enabled: boolean }>(
       "/api/auth/config"
     ),
-  me: () => request<{ id: string; email: string; name: string; org_id: string | null }>("/api/me"),
+  me: () => request<{ id: string; email: string; name: string; org_id: string | null; role?: string; autopilot?: boolean }>("/api/me"),
+  setAutopilot: (enabled: boolean) =>
+    request<{ autopilot: boolean }>("/api/me/autopilot", { method: "POST", body: JSON.stringify({ enabled }) }),
 
   createDemo: () => request<Meeting>("/api/meetings/demo", { method: "POST" }),
   joinLive: (meeting_url: string, fields: Partial<{ title: string; customer_company: string; customer_contact: string }> = {}) =>
@@ -69,12 +72,20 @@ export const api = {
   suggestions: (id: string) => request<Suggestion[]>(`/api/meetings/${id}/suggestions`),
   end: (id: string) => request<Summary>(`/api/meetings/${id}/end`, { method: "POST" }),
   summary: (id: string) => request<Summary>(`/api/meetings/${id}/summary`),
+  recording: (id: string) => request<{ status: string; url: string | null }>(`/api/meetings/${id}/recording`),
+  scorecard: (id: string, refresh = false) =>
+    request<Scorecard>(`/api/meetings/${id}/scorecard${refresh ? "?refresh=1" : ""}`),
+  teamCoaching: () => request<TeamCoaching>("/api/team/coaching"),
 
   // Approve-then-act
   listActions: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions`),
   proposeAction: (id: string, action: Record<string, unknown>) =>
     request<ProposedAction>(`/api/meetings/${id}/actions/propose`, { method: "POST", body: JSON.stringify({ action }) }),
-  approveAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/approve`, { method: "POST" }),
+  approveAction: (actionId: string, payload?: Record<string, unknown>) =>
+    request<ProposedAction>(`/api/actions/${actionId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ payload: payload || null }),
+    }),
   rejectAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/reject`, { method: "POST" }),
   approveAll: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions/approve-all`, { method: "POST" }),
   metrics: () => request<Metrics>("/metrics"),
@@ -89,6 +100,20 @@ export const api = {
     request<{ url: string; live: boolean }>("/api/billing/checkout", { method: "POST", body: JSON.stringify({ plan }) }),
   portal: () => request<{ url: string }>("/api/billing/portal", { method: "POST" }),
   org: () => request<OrgInfo>("/api/org"),
+  updateMember: (memberId: string, patch: { role?: string; team?: string; manager_id?: string | null }) =>
+    request<{ id: string; role: string; team: string; manager_id: string | null }>(
+      `/api/org/members/${memberId}`,
+      { method: "POST", body: JSON.stringify(patch) }
+    ),
+
+  // Calendar (upcoming meetings from the user's connected Google Calendar)
+  upcomingMeetings: () => request<UpcomingMeetings>("/api/calendar/upcoming"),
+  // Pre-meeting prep brief (researched across connected sources + prior notes; cached)
+  meetingPrep: (eventId: string, refresh = false) =>
+    request<MeetingPrep>(`/api/calendar/prep/${encodeURIComponent(eventId)}${refresh ? "?refresh=1" : ""}`),
+  // Prep brief tied to a meeting record (read-only; what was prepared before this meeting)
+  meetingPrepRecord: (meetingId: string) =>
+    request<MeetingPrepRecord>(`/api/meetings/${meetingId}/prep`),
 
   // Connectors
   connectors: () => request<Connector[]>("/api/connectors"),

@@ -48,12 +48,13 @@ Full VM guide: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** · go-live checklist
 # Backend
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
 #   set production env in backend/.env (DATABASE_URL=postgres…, ANTHROPIC_API_KEY,
-#   CLERK_*, TOKEN_ENCRYPTION_KEY, provider *_CLIENT_ID/SECRET, RECALL_API_KEY)
+#   GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, SESSION_SECRET, TOKEN_ENCRYPTION_KEY,
+#   provider *_CLIENT_ID/SECRET, RECALL_API_KEY)
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # Frontend (build once, serve)
 cd frontend && npm ci && npm run build && npm start    # or deploy to Vercel
-#   set NEXT_PUBLIC_API_URL and NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+#   set NEXT_PUBLIC_API_URL (no auth env needed — the frontend reads /api/auth/config)
 
 # Optional managed services (PRD stack)
 docker compose up -d        # Postgres + Qdrant + Redis
@@ -74,7 +75,7 @@ Verified launch-ready: production build passes (5 routes), **38/38 end-to-end ch
 | Auto CRM write-back (recap note · tasks · follow-up email draft) | ✅ |
 | **Two-tier latency**: instant answer (<5s SLA) → Claude+MCP deep upgrade in place | ✅ |
 | **Per-user connectors** (each employee BYO): HubSpot · Drive · Gmail · Calendar · Notion · LinkedIn | ✅ |
-| **SSO** (Clerk) · per-user data isolation · encrypted token vault · audit log | ✅ |
+| **Google sign-in** · per-user data isolation · encrypted token vault · audit log | ✅ |
 | **SaaS**: organizations/tenancy · RBAC · Free/Pro/Enterprise plans · usage metering & limit enforcement · Stripe-ready billing + Settings/team UI · Alembic migrations · rate limiting | ✅ |
 
 ## Architecture (per PRD)
@@ -96,8 +97,8 @@ service accounts. Access scoping is enforced by the source systems themselves.
   grounded answers, summary, CRM write-back) and a real local **Claude + MCP** run if you're
   signed into Claude Code.
 - **Switch on with config** ([docs/CONNECTORS_AND_AUTH.md](docs/CONNECTORS_AND_AUTH.md)):
-  `ANTHROPIC_API_KEY` (cloud Claude), Clerk (multi-user SSO), `RECALL_API_KEY` (real meeting
-  bots), and each employee connecting their own tools on the **Connections** page.
+  `ANTHROPIC_API_KEY` (cloud Claude), Google sign-in (multi-user login), `RECALL_API_KEY`
+  (real meeting bots), and each employee connecting their own tools on the **Connections** page.
 
 ## Verification summary
 

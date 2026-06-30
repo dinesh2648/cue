@@ -26,8 +26,19 @@ class CopilotPack:
 
     # ── Triggers ──────────────────────────────────────────────────────────────
     def detect(self, text: str) -> IntentResult:
-        """Classify a customer utterance into this pack's intent taxonomy."""
+        """Fast, offline regex classification into this pack's intent taxonomy."""
         raise NotImplementedError
+
+    def intent_descriptions(self) -> dict[str, str]:
+        """intent_type → human description, used to prompt the LLM triage layer."""
+        return {"general": "any genuine question or request the rep should answer"}
+
+    async def classify(self, text: str, recent: list[str] | None = None) -> IntentResult:
+        """Layer 1: LLM triage (Claude) decides if/what to answer; regex is the fallback."""
+        from ..agent import triage
+
+        res = await triage.classify(text, recent, self.intent_descriptions())
+        return res if res is not None else self.detect(text)
 
     # ── Capability ────────────────────────────────────────────────────────────
     def has_deep(self, servers: list[dict]) -> bool:
@@ -49,7 +60,16 @@ class CopilotPack:
 
     # ── Post-meeting ────────────────────────────────────────────────────────────
     async def summarize(
-        self, *, meeting: dict, intents: list[dict], suggestions: list[dict], crm: dict, transcript: str
+        self,
+        *,
+        meeting: dict,
+        intents: list[dict],
+        suggestions: list[dict],
+        crm: dict,
+        transcript: str,
+        history: list[dict] | None = None,
+        docs: list[dict] | None = None,
     ) -> dict:
-        """Generate the post-meeting summary + follow-up artifacts for this pack."""
+        """Generate the post-meeting summary + follow-up artifacts, synthesizing the current
+        transcript with prior meetings (`history`) and account sources (`crm`, `docs`)."""
         raise NotImplementedError

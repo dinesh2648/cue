@@ -11,6 +11,48 @@ const SOURCE_ICON: Record<string, string> = {
   connector: "🔌",
 };
 
+// Minimal, safe markdown for short answers: **bold**, [text](url), bare URLs, and
+// line breaks. No raw HTML — React escapes all text nodes, so this can't inject markup.
+const INLINE_RE = /\*\*(.+?)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)]+)/g;
+
+function renderInline(line: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  INLINE_RE.lastIndex = 0;
+  while ((m = INLINE_RE.exec(line)) !== null) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    if (m[1] !== undefined) {
+      out.push(<strong key={key++}>{m[1]}</strong>);
+    } else if (m[2] !== undefined) {
+      out.push(<a key={key++} href={m[3]} target="_blank" rel="noreferrer">{m[2]}</a>);
+    } else if (m[4] !== undefined) {
+      const url = m[4];
+      out.push(<a key={key++} href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, "")}</a>);
+    }
+    last = INLINE_RE.lastIndex;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
+
+function renderRich(text: string): React.ReactNode {
+  return text
+    .split(/\n{2,}/)
+    .filter((p) => p.trim())
+    .map((para, i) => (
+      <p key={i} style={{ margin: i ? "8px 0 0" : 0 }}>
+        {para.split("\n").map((line, j) => (
+          <span key={j}>
+            {j > 0 && <br />}
+            {renderInline(line)}
+          </span>
+        ))}
+      </p>
+    ));
+}
+
 export default function SuggestionCard({
   s,
   onPropose,
@@ -39,6 +81,7 @@ export default function SuggestionCard({
   const refining = !!s.deep_pending && !liveAgent;
   const grounded = s.grounded !== false;
   const userScope = s.access_scope === "user";
+  const webScope = s.access_scope === "web";
 
   return (
     <div className="suggestion">
@@ -88,14 +131,20 @@ export default function SuggestionCard({
             {grounded ? "✓ Grounded · cited" : "⚠ Will confirm — not in your sources"}
           </span>
           <span
-            className={`trust ${userScope ? "scope" : "demo"}`}
+            className={`trust ${userScope || webScope ? "scope" : "demo"}`}
             title={
               userScope
                 ? "Retrieved live through your own connected tools, scoped to your permissions — the copilot can't see anything you can't."
+                : webScope
+                ? "Researched live on the web — every claim is drawn from the sources below."
                 : "Demo/seeded data. Connect your tools to answer from your own permission-scoped sources."
             }
           >
-            {userScope ? "🔒 Answered as you · your access only" : "🗂️ demo data"}
+            {userScope
+              ? "🔒 Answered as you · your access only"
+              : webScope
+              ? "🌐 Live web research"
+              : "🗂️ demo data"}
           </span>
           <button className="trust-why" onClick={() => setShowTrust((v) => !v)}>
             {showTrust ? "hide" : "why can I trust this?"}
@@ -121,6 +170,8 @@ export default function SuggestionCard({
                 <b>Access</b> —{" "}
                 {userScope
                   ? `retrieved as ${repName || "you"} through your own connected tools. Only data you can access was read — nothing outside your permissions was touched.`
+                  : webScope
+                  ? "researched live on the public web (this topic isn't in your connected sources). See the source links below."
                   : "seeded demo data. Connect your tools on the Connections page to answer from your own permission-scoped sources."}
               </li>
               <li><b>Confidence</b> — {pct}%</li>
@@ -147,7 +198,7 @@ export default function SuggestionCard({
             )}
           </div>
         )}
-        <div className="answer">{s.answer}</div>
+        <div className="answer">{renderRich(s.answer)}</div>
 
         {s.evidence?.length > 0 && (
           <>

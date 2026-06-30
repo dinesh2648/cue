@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     app_name: str = "Cue"  # platform name; Sales is one Copilot Pack
     version: str = "0.3.0"
 
-    # Launch scope — which Copilot Packs are live. Sales-first rollout: "sales" only.
-    enabled_packs: str = "sales"
+    # Launch scope — which Copilot Packs are live.
+    enabled_packs: str = "sales,tech"
 
     # URLs (used for OAuth redirects)
     app_base_url: str = "http://localhost:8000"
@@ -31,11 +31,23 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     # Agent engine: "auto" picks messages_mcp when an Anthropic key is set, else offline.
     agent_engine: str = "auto"  # auto | messages_mcp | agent_sdk | offline
+    # Layer-1 triage model (fast/cheap): decides if a turn needs an answer before the
+    # deep agent runs. Falls back to the regex detector when no Anthropic key is set.
+    triage_model: str = "claude-haiku-4-5-20251001"
 
     # Vector DB
     qdrant_url: str | None = None
 
-    # Auth (Clerk). When unset, the app runs in single-user DEV mode.
+    # Auth — Google sign-in. When unset, the app runs in single-user DEV mode.
+    # Reuses the same Google OAuth app as the Drive/Gmail/Calendar connectors
+    # (one client, multiple authorized redirect URIs).
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    # Secret for signing our own session JWTs (HS256). Falls back to the token
+    # encryption key, then an insecure dev key.
+    session_secret: str | None = None
+
+    # Legacy Clerk fields — kept so old .env files still parse. No longer used.
     clerk_secret_key: str | None = None
     clerk_publishable_key: str | None = None
     clerk_jwks_url: str | None = None
@@ -84,9 +96,18 @@ class Settings(BaseSettings):
         return bool(self.openai_api_key)
 
     @property
+    def google_login_enabled(self) -> bool:
+        """Real Google sign-in is on when a Google OAuth app is configured."""
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
     def dev_mode(self) -> bool:
-        """No Clerk configured → single seeded dev user, no JWT required."""
-        return not self.clerk_secret_key
+        """No auth provider configured → single seeded dev user, no JWT required."""
+        return not self.google_login_enabled
+
+    @property
+    def session_signing_secret(self) -> str:
+        return self.session_secret or self.token_encryption_key or "copilot-dev-insecure-key"
 
     @property
     def billing_enabled(self) -> bool:

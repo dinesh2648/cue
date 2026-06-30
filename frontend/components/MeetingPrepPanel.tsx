@@ -1,0 +1,108 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import type { MeetingPrep } from "@/lib/types";
+
+// Minimal, safe markdown → React for the prep brief: ## / ### headings, - / * bullets,
+// **bold**, [text](url), bare URLs, and paragraphs. No raw HTML, no new deps.
+function renderInline(text: string, keyBase: string) {
+  const nodes: React.ReactNode[] = [];
+  const re = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|(https?:\/\/[^\s)]+)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[1]) nodes.push(<b key={`${keyBase}-b${k++}`}>{m[1]}</b>);
+    else if (m[2]) nodes.push(<a key={`${keyBase}-l${k++}`} href={m[3]} target="_blank" rel="noreferrer">{m[2]}</a>);
+    else if (m[4]) nodes.push(<a key={`${keyBase}-u${k++}`} href={m[4]} target="_blank" rel="noreferrer">{m[4].replace(/^https?:\/\//, "")}</a>);
+    last = re.lastIndex;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+export function Markdown({ md }: { md: string }) {
+  const blocks: React.ReactNode[] = [];
+  const lines = md.split("\n");
+  let bullets: string[] = [];
+  let key = 0;
+  const flush = () => {
+    if (bullets.length) {
+      const items = bullets;
+      blocks.push(
+        <ul key={`ul${key++}`} className="prep-ul">
+          {items.map((b, i) => <li key={i}>{renderInline(b, `li${key}-${i}`)}</li>)}
+        </ul>
+      );
+      bullets = [];
+    }
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (/^###\s+/.test(line)) { flush(); blocks.push(<h4 key={`h${key++}`} className="prep-h">{renderInline(line.replace(/^###\s+/, ""), `h${key}`)}</h4>); }
+    else if (/^##\s+/.test(line)) { flush(); blocks.push(<h3 key={`h${key++}`} className="prep-h">{renderInline(line.replace(/^##\s+/, ""), `h${key}`)}</h3>); }
+    else if (/^#\s+/.test(line)) { flush(); blocks.push(<h3 key={`h${key++}`} className="prep-h">{renderInline(line.replace(/^#\s+/, ""), `h${key}`)}</h3>); }
+    else if (/^\s*[-*]\s+/.test(line)) { bullets.push(line.replace(/^\s*[-*]\s+/, "")); }
+    else if (line.trim() === "") { flush(); }
+    else { flush(); blocks.push(<p key={`p${key++}`} className="prep-p">{renderInline(line, `p${key}`)}</p>); }
+  }
+  flush();
+  return <div className="prep-md">{blocks}</div>;
+}
+
+export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
+  const [prep, setPrep] = useState<MeetingPrep | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (refresh = false) => {
+    setLoading(true);
+    setError(null);
+    try {
+      setPrep(await api.meetingPrep(eventId, refresh));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to prepare notes");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
+
+  return (
+    <div className="prep-panel">
+      {loading && !prep ? (
+        <div className="prep-loading">🔎 Researching across your connected sources & prior notes…</div>
+      ) : error ? (
+        <div className="prep-error">
+          {error} <button className="btn sm" onClick={() => load(true)}>Retry</button>
+        </div>
+      ) : prep ? (
+        <>
+          <Markdown md={prep.markdown} />
+          <div className="prep-foot">
+            {prep.sources.length > 0 && (
+              <span className="prep-sources">
+                {prep.sources.map((s, i) => (
+                  <span key={i} className="source-chip" title={s.detail}>{s.label}</span>
+                ))}
+              </span>
+            )}
+            <span className="prep-meta">
+              {prep.engine === "claude+mcp" ? "researched live" : prep.engine === "llm" ? "from your notes" : "limited context"}
+              {" · "}
+              <button className="prep-refresh" onClick={() => load(true)} disabled={loading}>
+                {loading ? "refreshing…" : "↻ refresh"}
+              </button>
+            </span>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}

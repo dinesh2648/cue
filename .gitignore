@@ -20,3 +20,7 @@ next-env.d.ts
 # OS / editor
 .DS_Store
 *.log
+.bringup-logs/
+*.env.bak*
+.env.bak*
+/tmp/

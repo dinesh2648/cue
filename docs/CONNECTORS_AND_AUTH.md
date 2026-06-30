@@ -6,7 +6,7 @@ connectors fetched live over MCP — each employee only ever sees their own data
 ## How permission-scoped access works
 
 ```
-Employee ──Clerk SSO──▶ App ──"Connect HubSpot"──▶ provider OAuth consent
+Employee ──Google sign-in──▶ App ──"Connect HubSpot"──▶ provider OAuth consent
                                                           │
                                   encrypted token stored per (user, provider)
                                                           │
@@ -41,24 +41,29 @@ With neither configured, the deterministic offline composer is used (the app alw
 Latency note: the full agent loop runs ~10–15s/turn; the live `<5s` SLA is met by the
 two-tier design (fast deterministic router for the hot path, agent loop for depth).
 
-## 2. Auth (Clerk)
+## 2. Auth (Sign in with Google)
 
 ```bash
 # Backend (.env)
-CLERK_SECRET_KEY=sk_...
-CLERK_PUBLISHABLE_KEY=pk_...
-CLERK_ISSUER=https://<your-app>.clerk.accounts.dev
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+SESSION_SECRET=<a long random secret>           # signs session JWTs; falls back to TOKEN_ENCRYPTION_KEY
 TOKEN_ENCRYPTION_KEY=<a long random secret>     # REQUIRED in prod (Fernet key vault)
 
-# Frontend (.env.local)
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+# Frontend — no auth env needed; it reads /api/auth/config to decide what to show.
 ```
 
+The **same** Google OAuth app powers both login and the Drive/Gmail/Calendar connectors.
+Register the sign-in redirect URI `{APP_BASE_URL}/api/auth/google/callback`.
+
 - Unset → **DEV mode**: a single seeded `dev_user`, no login, mock data.
-- Set → the frontend mounts `<ClerkProvider>` and gates the app; the backend verifies
-  the session JWT against Clerk's JWKS (`security/auth.py`) and upserts the `User`.
-- The frontend attaches the Clerk token to every API call and the meeting WebSocket;
-  the WS also checks meeting ownership.
+- Set → the frontend shows a **"Continue with Google"** screen (it reads `/api/auth/config`
+  — no frontend auth env). The backend runs the Google OAuth code exchange, reads the user's
+  Google profile, upserts the `User`, and issues its **own** short-lived session JWT
+  (HS256, signed with `SESSION_SECRET` — `security/auth.py`). Users are grouped into one
+  workspace per email domain (first user = owner, later joiners = members).
+- The frontend stores that session token and attaches it to every API call and the meeting
+  WebSocket; the WS also checks meeting ownership.
 
 ## 3. Connectors (OAuth click-through — the Anthropic key is the *only* platform secret)
 
@@ -143,10 +148,11 @@ in local dev expose `APP_BASE_URL` via a tunnel.)
 - **Real & tested:** **live Claude + MCP run** (Agent SDK + in-process MCP, end-to-end in
   the UI with the "Claude · live" badge), the Anthropic MCP-connector agent, the Recall.ai
   bot + transcript-webhook wiring, encrypted token vault, OAuth authorize/exchange/refresh,
-  per-user MCP exposure + isolation, Clerk JWT verification, the connections UI,
-  ownership-checked WebSocket.
-- **Needs you (only you can):** create the OAuth apps + Clerk instance + Recall.ai key and
-  provide them; point Google Drive/Gmail at a self-hosted MCP (no official hosted one yet);
+  per-user MCP exposure + isolation, session JWT verification (Google sign-in), the
+  connections UI, ownership-checked WebSocket.
+- **Needs you (only you can):** create the Google OAuth app (+ other provider OAuth apps) +
+  Recall.ai key and provide them; point Google Drive/Gmail at a self-hosted MCP (no official
+  hosted one yet);
   expose your webhook URL for Recall in local dev.
 
 Until then the app runs in DEV mode with seeded data and offline answers — same UX,

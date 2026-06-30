@@ -21,9 +21,15 @@ def test_crypto_roundtrip():
 
 def test_oauth_state_sign_verify():
     state = manager.sign_state("user_123", "hubspot")
-    uid, provider = manager.verify_state(state)
+    uid, provider, code_verifier = manager.verify_state(state)
     assert uid == "user_123"
     assert provider == "hubspot"
+    assert code_verifier is None  # no PKCE for a plain state
+
+    # PKCE: the verifier round-trips through the signed state.
+    pkce_state = manager.sign_state("user_123", "hubspot", code_verifier="abc123")
+    _, _, cv = manager.verify_state(pkce_state)
+    assert cv == "abc123"
 
 
 def test_catalog_lists_all_providers():
