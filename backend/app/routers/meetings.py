@@ -13,7 +13,7 @@ from ..billing import service as billing_service
 from ..config import settings
 from ..db import get_db
 from ..knowledge.store import index
-from ..packs.registry import get_pack, pack_for_team
+from ..packs.registry import get_pack, pack_for_owner, pack_for_team
 from ..models import (
     AuditLog,
     CRMSyncRecord,
@@ -309,10 +309,11 @@ async def scorecard(
     if not segs:
         return {"status": "no_transcript"}
     transcript = "\n".join(f"{s.speaker}: {s.text}" for s in segs)
+    persona = "tech" if pack_for_owner(db, meeting) == "tech" else "sales"
     data = await coaching.generate_scorecard(
         {"rep_name": meeting.rep_name, "customer_company": meeting.customer_company, "customer_contact": meeting.customer_contact},
         [{"speaker": s.speaker, "text": s.text, "role": s.role} for s in segs],
-        transcript,
+        transcript, persona=persona,
     )
     if not data:
         return {"status": "unavailable"}

@@ -24,6 +24,19 @@ def pack_for_team(team: str | None) -> str:
     return _TEAM_PACK.get((team or "sales").lower(), "sales")
 
 
+def pack_for_owner(db, meeting) -> str:
+    """Effective pack for a meeting = its OWNER's current team pack, so switching team
+    (sales↔tech) reframes live suggestions, summary, action items and scorecard — not just
+    prep. Falls back to the meeting's stored pack when there's no owner."""
+    from ..models import User
+
+    if getattr(meeting, "owner_user_id", None):
+        owner = db.get(User, meeting.owner_user_id)
+        if owner:
+            return pack_for_team(owner.team)
+    return meeting.pack or DEFAULT_PACK
+
+
 def get_pack(key: str | None) -> CopilotPack:
     return PACKS.get(key or DEFAULT_PACK, _sales)
 

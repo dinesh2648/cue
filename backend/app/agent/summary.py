@@ -131,6 +131,28 @@ _SUMMARY_SYSTEM = (
     "When previous meetings are provided, explicitly build on them. Output JSON only."
 )
 
+# Tech persona: engineering/delivery framing (decisions, tickets, blockers) — not sales.
+_SUMMARY_SYSTEM_TECH = (
+    "You are a senior engineering/delivery lead writing the post-meeting brief for a technical "
+    "team. You are given the CURRENT meeting transcript, summaries of PREVIOUS related meetings, "
+    "any CRM/project snapshot, and relevant docs. Synthesize ALL of it — connect this discussion "
+    "to what progressed, got unblocked, or changed since last time.\n"
+    "Return ONLY a JSON object with these keys:\n"
+    "- executive_summary: 3-5 sentences. What was discussed/decided technically and how it moves "
+    "the work forward. Specific and grounded.\n"
+    "- customer_concerns: array of open questions / concerns raised (technical or from stakeholders).\n"
+    "- key_decisions: array of concrete technical decisions or agreements (design choices, "
+    "approach, ownership, scope).\n"
+    "- risks: array of delivery risks — blockers, dependencies, tech debt, unresolved bugs, "
+    "unclear requirements, timeline threats.\n"
+    "- action_items: array of specific next steps for the team, each ONE concise sentence "
+    "(max ~140 chars) — phrased as engineering tasks (e.g. 'Open a Jira ticket to…', 'Spike…', "
+    "'Raise a PR for…').\n"
+    "- follow_up_email: a concise recap message to the team/stakeholders with decisions and next "
+    "steps. Start with a 'Subject:' line. Plain text, no markdown.\n"
+    "Ground every point strictly in the material provided — never invent facts. Output JSON only."
+)
+
 
 def _crm_brief(crm: dict) -> str:
     deal = (crm.get("deals") or [{}])[0]
@@ -193,13 +215,15 @@ async def generate_summary(
     transcript: str,
     history: list[dict] | None = None,
     docs: list[dict] | None = None,
+    persona: str = "sales",
 ) -> dict:
     """Synthesize the post-meeting brief from the current transcript, prior meetings with the
-    same client, the CRM snapshot, and enterprise docs. Heuristic baseline is the fallback."""
+    same client, the CRM snapshot, and enterprise docs. Heuristic baseline is the fallback.
+    `persona` ('tech'|'sales') sets whether the brief is engineering- or sales-framed."""
     base = _heuristic(meeting, intents, suggestions, crm)
 
     raw = await llm_complete(
-        system=_SUMMARY_SYSTEM,
+        system=_SUMMARY_SYSTEM_TECH if persona == "tech" else _SUMMARY_SYSTEM,
         user=_build_context(meeting, intents, suggestions, crm, transcript, history or [], docs or []),
         max_tokens=1800,
         temperature=0.3,

@@ -23,22 +23,42 @@ _DIMENSIONS = [
     "Next Steps & Closing",
 ]
 
-_SYSTEM = (
-    "You are an expert sales coach reviewing a recorded customer call. Analyze how the REP "
-    "(named below) handled it — NOT the customer. Be specific, fair, and grounded in the "
-    "transcript; cite short quotes as evidence. Use the objective metrics provided to inform "
-    "scores (e.g. a very high talk ratio hurts 'Listening').\n"
-    "Return ONLY a JSON object:\n"
-    "{\n"
-    '  "overall_score": <0-100 integer>,\n'
-    '  "headline": "<one-sentence verdict>",\n'
-    '  "dimensions": [{"name": "<one of the given dimensions>", "score": <0-100>, "comment": "<1-2 sentences, specific>"}],\n'
-    '  "strengths": ["<specific thing the rep did well>", ...],\n'
-    '  "improvements": ["<specific, actionable area to improve>", ...],\n'
-    '  "coaching_tips": [{"tip": "<concrete coaching tip>", "example": "<what to say / a better phrasing>"}]\n'
-    "}\n"
-    f"Score EACH of these dimensions: {', '.join(_DIMENSIONS)}. "
-    "Keep every item concise. JSON only, no markdown."
+# Tech persona: review how the engineer/lead ran a technical discussion (not a sales call).
+_DIMENSIONS_TECH = [
+    "Problem Framing & Clarity",
+    "Technical Depth & Accuracy",
+    "Listening & Collaboration",
+    "Decision-Making & Trade-offs",
+    "Unblocking & Risk Surfacing",
+    "Next Steps & Ownership",
+]
+
+
+def _build_system(role: str, dims: list[str]) -> str:
+    return (
+        f"You are {role}. Analyze how the PARTICIPANT (named below) handled it — be specific, "
+        "fair, and grounded in the transcript; cite short quotes as evidence. Use the objective "
+        "metrics provided to inform scores (e.g. a very high talk ratio hurts 'Listening').\n"
+        "Return ONLY a JSON object:\n"
+        "{\n"
+        '  "overall_score": <0-100 integer>,\n'
+        '  "headline": "<one-sentence verdict>",\n'
+        '  "dimensions": [{"name": "<one of the given dimensions>", "score": <0-100>, "comment": "<1-2 sentences, specific>"}],\n'
+        '  "strengths": ["<specific thing they did well>", ...],\n'
+        '  "improvements": ["<specific, actionable area to improve>", ...],\n'
+        '  "coaching_tips": [{"tip": "<concrete coaching tip>", "example": "<what to say / a better phrasing>"}]\n'
+        "}\n"
+        f"Score EACH of these dimensions: {', '.join(dims)}. "
+        "Keep every item concise. JSON only, no markdown."
+    )
+
+
+_SYSTEM = _build_system(
+    "an expert sales coach reviewing a recorded customer call (the REP, not the customer)", _DIMENSIONS
+)
+_SYSTEM_TECH = _build_system(
+    "an experienced engineering lead reviewing a recorded technical discussion (how the participant "
+    "framed problems, reasoned technically, collaborated and drove decisions)", _DIMENSIONS_TECH
 )
 
 
@@ -98,15 +118,16 @@ def _as_list(v):
     return [x for x in v if x] if isinstance(v, list) else []
 
 
-async def generate_scorecard(meeting: dict, segments: list[dict], transcript: str) -> dict | None:
-    """Return a structured rep scorecard, or None if the transcript is too thin / no LLM."""
+async def generate_scorecard(meeting: dict, segments: list[dict], transcript: str, persona: str = "sales") -> dict | None:
+    """Return a structured scorecard, or None if the transcript is too thin / no LLM.
+    `persona` ('tech'|'sales') selects sales-coach vs engineering-lead review + dimensions."""
     rep = meeting.get("rep_name") or "the rep"
     m = metrics(segments, rep)
     if m["total_words"] < 40:  # not enough was said to coach on
         return None
 
     raw = await llm_complete(
-        system=_SYSTEM, user=_context(meeting, transcript, m),
+        system=_SYSTEM_TECH if persona == "tech" else _SYSTEM, user=_context(meeting, transcript, m),
         max_tokens=1700, temperature=0.3, timeout=60.0,
     )
     if not raw:

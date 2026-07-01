@@ -69,7 +69,9 @@ class CopilotPack:
         transcript: str,
         history: list[dict] | None = None,
         docs: list[dict] | None = None,
+        persona: str = "sales",
     ) -> dict:
         """Generate the post-meeting summary + follow-up artifacts, synthesizing the current
-        transcript with prior meetings (`history`) and account sources (`crm`, `docs`)."""
+        transcript with prior meetings (`history`) and account sources (`crm`, `docs`).
+        `persona` ('tech'|'sales') frames the brief for the owner's team."""
         raise NotImplementedError

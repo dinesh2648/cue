@@ -23,7 +23,7 @@ from .models import (
     Suggestion,
     TranscriptSegment,
 )
-from .packs.registry import get_pack
+from .packs.registry import get_pack, pack_for_owner
 from .realtime.manager import manager
 
 log = logging.getLogger("copilot.finalize")
@@ -76,11 +76,17 @@ async def finalize_meeting(db: Session, meeting: Meeting, *, with_scorecard: boo
         for h in await index.search(f"{meeting.customer_company} {topics}".strip(), k=4)
     ]
 
-    summary_data = await get_pack(meeting.pack).summarize(
+    # Frame the whole wrap-up (summary, actions, scorecard) by the OWNER's current team.
+    pack_key = pack_for_owner(db, meeting)
+    if meeting.pack != pack_key:
+        meeting.pack = pack_key
+    persona = "tech" if pack_key == "tech" else "sales"
+
+    summary_data = await get_pack(pack_key).summarize(
         meeting={"customer_company": meeting.customer_company, "customer_contact": meeting.customer_contact, "rep_name": meeting.rep_name},
         intents=[{"intent_type": i.intent_type} for i in intent_rows],
         suggestions=[{"actions": s.actions, "answer": s.answer} for s in suggestion_rows],
-        crm=crm, transcript=transcript_text, history=history, docs=docs,
+        crm=crm, transcript=transcript_text, history=history, docs=docs, persona=persona,
     )
 
     summary = db.scalar(select(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id)) or MeetingSummary(meeting_id=meeting_id)
@@ -99,12 +105,11 @@ async def finalize_meeting(db: Session, meeting: Meeting, *, with_scorecard: boo
             + "\n\nKey decisions:\n- " + "\n- ".join(summary_data["key_decisions"])
             + "\n\nRisks:\n- " + "\n- ".join(summary_data["risks"])
         )
-        action_service.propose(db, meeting_id=meeting_id, pack=meeting.pack, action_key="create_note",
+        action_service.propose(db, meeting_id=meeting_id, pack=pack_key, action_key="create_note",
                                kind="note", title="Log meeting recap note to CRM", payload={"body": note_body})
 
         # ── Agentic plan: typed, executable next actions (Jira tickets, researched Notion
         #    docs, reminders…) the user approves, then the agent performs for real. ──────
-        persona = "tech" if meeting.pack == "tech" else "sales"
         try:
             planned = await planner.plan_actions(
                 transcript=transcript_text, summary_data=summary_data, persona=persona
@@ -139,7 +144,7 @@ async def finalize_meeting(db: Session, meeting: Meeting, *, with_scorecard: boo
             sc_data = await coaching.generate_scorecard(
                 {"rep_name": meeting.rep_name, "customer_company": meeting.customer_company, "customer_contact": meeting.customer_contact},
                 [{"speaker": s.speaker, "text": s.text, "role": s.role} for s in segments],
-                transcript_text,
+                transcript_text, persona=persona,
             )
             if sc_data:
                 db.add(MeetingScorecard(

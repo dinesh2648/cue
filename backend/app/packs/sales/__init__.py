@@ -62,8 +62,8 @@ class SalesPack(CopilotPack):
             return await claude_agent.run_turn(text, intent.intent_type, servers)
         return None
 
-    async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None) -> dict:
+    async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None, persona="sales") -> dict:
         return await generate_summary(
             meeting=meeting, intents=intents, suggestions=suggestions, crm=crm,
-            transcript=transcript, history=history, docs=docs,
+            transcript=transcript, history=history, docs=docs, persona=persona,
         )

@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from ..connectors.manager import active_mcp_servers
 from ..db import SessionLocal
 from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment
-from ..packs.registry import get_pack
+from ..packs.registry import get_pack, pack_for_owner
 from .manager import manager
 from .simulator import get_scenario
 
@@ -92,7 +92,13 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
         meeting = db.get(Meeting, meeting_id)
         if meeting is None:
             return
-        pack = get_pack(meeting.pack)
+        # Drive suggestions by the OWNER's current team (Sales vs Tech), and keep the stored
+        # pack in sync so the UI + downstream summary/scorecard match.
+        pack_key = pack_for_owner(db, meeting)
+        if meeting.pack != pack_key:
+            meeting.pack = pack_key
+            db.commit()
+        pack = get_pack(pack_key)
 
         # ── Layer 1: triage (FR-003) — does this turn need an answer? ────────
         # Recent context (last few turns, excluding this one) helps resolve pronouns.
