@@ -250,6 +250,9 @@ class ConnectorConnection(Base):
     scopes: Mapped[list] = mapped_column(JSON, default=list)
     account_label: Mapped[str] = mapped_column(String(255), default="")
     mcp_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # DCR/MCP-OAuth context (dynamically-registered client_id/secret + token endpoint) so the
+    # token can be refreshed later without re-discovering. Empty for static-OAuth connectors.
+    oauth_meta: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

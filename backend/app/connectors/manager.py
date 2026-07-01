@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import AuditLog, ConnectorConnection, User
 from ..security.crypto import decrypt, encrypt
-from . import oauth
-from .registry import CONNECTORS, is_configured, mcp_url
+from . import mcp_oauth, oauth
+from .registry import CONNECTORS, is_configured, mcp_url, redirect_uri
 
 log = logging.getLogger("copilot.connectors")
 
@@ -31,16 +31,24 @@ def _now() -> datetime:
 
 
 # ── OAuth state (stateless, signed) ──────────────────────────────────────────
-def sign_state(user_id: str, provider: str, code_verifier: str | None = None) -> str:
+def sign_state(user_id: str, provider: str, code_verifier: str | None = None,
+               extra: dict | None = None) -> str:
     payload = {"uid": user_id, "provider": provider, "exp": _now() + timedelta(minutes=10)}
     if code_verifier:  # carry the PKCE verifier through the round-trip (signed, tamper-proof)
         payload["cv"] = code_verifier
+    if extra:  # DCR context (dynamic client_id, token endpoint, resource) — signed, tamper-proof
+        payload.update(extra)
     return jwt.encode(payload, _STATE_SECRET, algorithm="HS256")
 
 
 def verify_state(state: str) -> tuple[str, str, str | None]:
     claims = jwt.decode(state, _STATE_SECRET, algorithms=["HS256"])
     return claims["uid"], claims["provider"], claims.get("cv")
+
+
+def decode_state(state: str) -> dict:
+    """Full signed-state claims (incl. DCR context) for the OAuth callback."""
+    return jwt.decode(state, _STATE_SECRET, algorithms=["HS256"])
 
 
 # ── Catalog + status ─────────────────────────────────────────────────────────
@@ -60,8 +68,9 @@ def catalog(db: Session, user: User) -> list[dict]:
                 "category": c.category,
                 "description": c.description,
                 # OAuth is an optional admin convenience; users can always BYO-connect.
-                "oauth_available": is_configured(key),
-                "oauth_mode": "live" if is_configured(key) else "demo",
+                # DCR connectors (e.g. Jira) do live one-click OAuth with no app setup.
+                "oauth_available": is_configured(key) or (c.dcr and bool(mcp_url(key))),
+                "oauth_mode": "live" if (is_configured(key) or (c.dcr and bool(mcp_url(key)))) else "demo",
                 "mcp_default": mcp_url(key) or "",
                 "has_mcp": bool(mcp_url(key)),
                 "status": conn.status if conn else "disconnected",
@@ -86,13 +95,39 @@ def get_connection(db: Session, user_id: str, provider: str) -> ConnectorConnect
 
 
 # ── Connect / callback / disconnect ──────────────────────────────────────────
-def authorize_url(user: User, provider: str) -> tuple[str, str]:
-    """Return (authorize_url, mode). 'live' = real provider OAuth (app registered);
-    'demo' = built-in consent screen so the click-through works with zero setup."""
+async def authorize_url(user: User, provider: str) -> tuple[str, str]:
+    """Return (authorize_url, mode). 'live' = real provider OAuth; 'demo' = built-in consent.
+
+    DCR providers (e.g. Jira) connect one-click with no pre-registered app: we discover the
+    MCP server's OAuth metadata, dynamically register a public client, and run PKCE.
+    """
     if provider not in CONNECTORS:
         raise ValueError("unknown provider")
+    conn = CONNECTORS[provider]
+
+    # One-click MCP OAuth via Dynamic Client Registration (no ATLASSIAN_CLIENT_ID needed).
+    if conn.dcr and mcp_url(provider):
+        try:
+            meta = await mcp_oauth.discover(mcp_url(provider))
+            if mcp_oauth.supports_dcr(meta):
+                scope = " ".join(conn.oauth.scopes)
+                reg = await mcp_oauth.register_client(meta["registration_endpoint"], redirect_uri(provider), scope)
+                verifier = oauth.new_code_verifier()
+                state = sign_state(
+                    user.id, provider, verifier,
+                    extra={"cid": reg["client_id"], "cs": reg.get("client_secret"),
+                           "te": meta["token_endpoint"], "res": mcp_url(provider)},
+                )
+                url = mcp_oauth.build_authorize_url(
+                    meta, reg["client_id"], redirect_uri(provider), scope,
+                    state, oauth.code_challenge(verifier), mcp_url(provider),
+                )
+                return url, "live"
+        except Exception as exc:  # discovery/registration failed → fall through to static/demo
+            log.warning("DCR connect for %s failed, falling back: %s", provider, exc)
+
     if is_configured(provider):
-        verifier = oauth.new_code_verifier() if CONNECTORS[provider].oauth.pkce else None
+        verifier = oauth.new_code_verifier() if conn.oauth.pkce else None
         state = sign_state(user.id, provider, verifier)
         challenge = oauth.code_challenge(verifier) if verifier else None
         return oauth.build_authorize_url(provider, state, challenge), "live"
@@ -127,10 +162,23 @@ def connect_demo(db: Session, provider: str, state: str) -> ConnectorConnection:
 
 
 async def handle_callback(db: Session, provider: str, code: str, state: str) -> ConnectorConnection:
-    user_id, expected, code_verifier = verify_state(state)
+    claims = decode_state(state)
+    user_id, expected, code_verifier = claims["uid"], claims["provider"], claims.get("cv")
     if expected != provider:
         raise ValueError("state/provider mismatch")
-    tok = await oauth.exchange_code(provider, code, code_verifier)
+
+    oauth_meta: dict = {}
+    if claims.get("te"):  # DCR path — exchange at the dynamically-discovered token endpoint
+        tok = await mcp_oauth.exchange_code(
+            claims["te"], claims["cid"], claims.get("cs"),
+            code, code_verifier, redirect_uri(provider), claims["res"],
+        )
+        oauth_meta = {
+            "client_id": claims["cid"], "client_secret": claims.get("cs"),
+            "token_endpoint": claims["te"], "resource": claims["res"],
+        }
+    else:  # static provider OAuth
+        tok = await oauth.exchange_code(provider, code, code_verifier)
 
     conn = _get(db, user_id, provider) or ConnectorConnection(user_id=user_id, provider=provider)
     conn.access_token_enc = encrypt(tok["access_token"])
@@ -138,8 +186,9 @@ async def handle_callback(db: Session, provider: str, code: str, state: str) -> 
         conn.refresh_token_enc = encrypt(tok["refresh_token"])
     conn.expires_at = _expiry(tok.get("expires_in"))
     conn.scopes = (tok.get("scope") or "").split() if tok.get("scope") else CONNECTORS[provider].oauth.scopes
-    conn.account_label = tok.get("account_label", "")
+    conn.account_label = tok.get("account_label", "") or ("Connected (your account)" if oauth_meta else "")
     conn.mcp_url = mcp_url(provider)
+    conn.oauth_meta = oauth_meta
     conn.status = "connected"
     conn.error = None
     db.add(conn)
@@ -213,7 +262,14 @@ async def _valid_access_token(db: Session, conn: ConnectorConnection) -> str | N
     needs_refresh = exp is not None and _now() >= exp - timedelta(seconds=60)
     if needs_refresh and conn.refresh_token_enc:
         try:
-            tok = await oauth.refresh_token(conn.provider, decrypt(conn.refresh_token_enc) or "")
+            meta = conn.oauth_meta or {}
+            if meta.get("token_endpoint"):  # DCR connection — refresh at its own endpoint
+                tok = await mcp_oauth.refresh(
+                    meta["token_endpoint"], meta["client_id"], meta.get("client_secret"),
+                    decrypt(conn.refresh_token_enc) or "", meta.get("resource"),
+                )
+            else:
+                tok = await oauth.refresh_token(conn.provider, decrypt(conn.refresh_token_enc) or "")
             if tok.get("access_token"):
                 conn.access_token_enc = encrypt(tok["access_token"])
                 if tok.get("refresh_token"):

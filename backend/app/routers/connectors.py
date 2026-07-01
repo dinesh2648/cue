@@ -59,7 +59,7 @@ def connect_token(
 
 
 @router.get("/{provider}/connect")
-def connect(
+async def connect(
     provider: str,
     user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_org),
@@ -67,12 +67,12 @@ def connect(
 ) -> dict:
     """Primary path: returns the provider's OAuth consent URL (the client redirects to it).
 
-    `mode` is 'live' (real provider OAuth) or 'demo' (built-in consent screen, no app setup).
+    `mode` is 'live' (real provider OAuth, incl. DCR one-click) or 'demo' (built-in screen).
     """
     if manager.get_connection(db, user.id, provider) is None and not billing_service.within_connector_limit(db, user.id, org):
         raise HTTPException(402, _CONN_LIMIT_MSG)
     try:
-        url, mode = manager.authorize_url(user, provider)
+        url, mode = await manager.authorize_url(user, provider)
         return {"authorize_url": url, "mode": mode}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

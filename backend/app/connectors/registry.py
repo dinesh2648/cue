@@ -35,6 +35,7 @@ class Connector:
     credentials_provider: str  # which *_CLIENT_ID/SECRET env prefix to use
     default_mcp_url: str | None = None
     mcp_transport: str = "http"  # "http" | "sse" — how the agent connects to the remote MCP
+    dcr: bool = False  # connect via MCP OAuth Dynamic Client Registration (one-click, no app setup)
 
 
 CONNECTORS: dict[str, Connector] = {
@@ -160,9 +161,11 @@ CONNECTORS: dict[str, Connector] = {
         icon="🧩",
         category="Engineering",
         description="Issues, sprints, epics and projects from Jira — for the Tech copilot.",
-        credentials_provider="atlassian",  # ATLASSIAN_CLIENT_ID/SECRET (one app for Jira/Confluence)
+        credentials_provider="atlassian",  # ATLASSIAN_CLIENT_ID/SECRET (only for the legacy static path)
         default_mcp_url="https://mcp.atlassian.com/v1/sse",
         mcp_transport="sse",
+        dcr=True,  # Atlassian's MCP supports OAuth Dynamic Client Registration → one-click connect
+
         oauth=OAuthConfig(
             authorize_url="https://auth.atlassian.com/authorize",
             token_url="https://auth.atlassian.com/oauth/token",
