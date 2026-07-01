@@ -163,8 +163,8 @@ CONNECTORS: dict[str, Connector] = {
         category="Engineering",
         description="Issues, sprints, epics and projects from Jira — for the Tech copilot.",
         credentials_provider="atlassian",  # ATLASSIAN_CLIENT_ID/SECRET (only for the legacy static path)
-        default_mcp_url="https://mcp.atlassian.com/v1/sse",
-        mcp_transport="sse",
+        default_mcp_url="https://mcp.atlassian.com/v1/mcp",  # streamable HTTP (SSE /v1/sse deprecated 2026-06-30)
+        mcp_transport="http",
         dcr=True,  # Atlassian's MCP supports OAuth Dynamic Client Registration → one-click connect
 
         oauth=OAuthConfig(

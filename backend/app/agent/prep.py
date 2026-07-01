@@ -60,6 +60,9 @@ _SYSTEM_COMPOSE = (
 _TECH_EXTRA = (
     " This is an engineering/technical meeting — favor Jira/GitHub/Drive context (open issues, "
     "PRs, design docs) and DO NOT use LinkedIn."
+    " For Jira: FIRST call getAccessibleAtlassianResources to get the cloudId, pass it to every "
+    "Jira tool, and use a BOUNDED JQL (add a restriction like project, assignee = currentUser(), "
+    "statusCategory != Done, or created >= -30d — unbounded queries are rejected)."
 )
 
 
