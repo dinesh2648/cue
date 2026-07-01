@@ -154,6 +154,7 @@ class MeetingPrep(Base):
     event_title: Mapped[str] = mapped_column(String(255), default="")
     event_start: Mapped[str] = mapped_column(String(64), default="")  # ISO string from calendar
     customer: Mapped[str] = mapped_column(String(255), default="")  # inferred customer/company
+    persona: Mapped[str] = mapped_column(String(16), default="")  # sales|tech — invalidate on team change
     markdown: Mapped[str] = mapped_column(Text, default="")  # the prep brief (rendered as markdown)
     sources: Mapped[list] = mapped_column(JSON, default=list)  # [{label, type, detail, url}]
     engine: Mapped[str] = mapped_column(String(32), default="")  # claude+mcp | llm | offline

@@ -103,11 +103,17 @@ def _fresh(row: MeetingPrep | None) -> bool:
     return datetime.now(timezone.utc) - gen < _CACHE_TTL
 
 
+def _usable(row: MeetingPrep | None, user: User) -> bool:
+    """A cached prep is usable only if it's fresh AND was generated for the user's current
+    persona — so switching team (sales↔tech) invalidates stale briefs automatically."""
+    return _fresh(row) and (getattr(row, "persona", "") or "") == _persona(user)
+
+
 async def build_prep(db: Session, user: User, event: dict, *, force: bool = False) -> MeetingPrep:
     """Return a cached fresh prep, or research + generate + cache a new one."""
     event_id = event["id"]
     cached = get_cached(db, user, event_id)
-    if cached and _fresh(cached) and not force:
+    if cached and _usable(cached, user) and not force:
         return cached
 
     rep_dom = _domain(user.email or "")
@@ -175,6 +181,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         event_title=(event.get("title") or "")[:255],
         event_start=(event.get("start") or "")[:64],
         customer=customer[:255],
+        persona=_persona(user),
         markdown=result.get("markdown", ""),
         sources=result.get("sources", []),
         engine=result.get("engine", ""),

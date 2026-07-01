@@ -199,10 +199,10 @@ async def _auto_prep(db) -> None:
             if _external_only() and not _is_external(ev.get("attendees", []), ev.get("organizer", ""), user.email):
                 continue
             cached = prep_ops.get_cached(db, user, eid)
-            if cached and cached.generated_at:
+            if cached and cached.generated_at and (cached.persona or "") == prep_ops._persona(user):
                 gen = cached.generated_at if cached.generated_at.tzinfo else cached.generated_at.replace(tzinfo=timezone.utc)
                 if (now - gen).total_seconds() < _PREP_REFRESH_MIN * 60:
-                    continue  # already prepared recently → still fresh for this meeting
+                    continue  # already prepared recently for the current persona
             _prep_inflight.add(eid)
             task = asyncio.create_task(_prep_one(user.id, ev))
             _prep_tasks.add(task)

@@ -102,7 +102,7 @@ async def get_prep(
     """
     if not refresh:
         cached = prep_ops.get_cached(db, user, event_id)
-        if cached and prep_ops._fresh(cached):
+        if cached and prep_ops._usable(cached, user):  # fresh AND matches current persona
             return {**_prep_out(cached), "cached": True}
     event = await _find_event(db, user, event_id)
     row = await prep_ops.build_prep(db, user, event, force=bool(refresh))
