@@ -29,7 +29,8 @@ log = logging.getLogger("copilot.autopilot")
 
 _TICK_SECONDS = 60
 _JOIN_WINDOW_MIN = 5  # dispatch the bot when a meeting starts within this many minutes
-_PREP_WINDOW_MIN = 180  # pre-generate prep notes for meetings starting within this window
+_PREP_WINDOW_MIN = 60  # pre-generate prep ~30-60 min ahead: start once a meeting is within this window
+_PREP_REFRESH_MIN = 90  # regenerate if the cached brief is older than this, so it's fresh near start
 _ENDED_CODES = {"call_ended", "done", "fatal"}
 
 # Event ids currently being prepped (best-effort, per-process) so overlapping ticks don't
@@ -161,10 +162,12 @@ async def _dispatch(db, user: User, ev: dict) -> None:
 
 
 async def _auto_prep(db) -> None:
-    """Pre-generate prep briefs for imminent external meetings so they're ready on open.
+    """Pre-generate prep briefs ~30-60 min ahead of every meeting so they're ready on open.
 
-    Spawns each brief as a background task (the agent run is slow) and never lets a failure
-    or a slow brief stall the join/finalize loop.
+    Fires once a meeting is within _PREP_WINDOW_MIN, for internal + external meetings with
+    another attendee. Regenerates if the cached brief is stale (> _PREP_REFRESH_MIN old) so
+    it reflects the latest email/CRM context near start. Each brief runs as a background task
+    (the agent is slow) and never stalls the join/finalize loop.
     """
     from . import prep_ops
 
@@ -187,13 +190,19 @@ async def _auto_prep(db) -> None:
             except ValueError:
                 continue
             mins = (start - now).total_seconds() / 60
-            if mins < -2 or mins > _PREP_WINDOW_MIN:  # not in the prep window
+            if mins < -2 or mins > _PREP_WINDOW_MIN:  # not in the ~30-60-min-ahead window
                 continue
-            if not _is_external(ev.get("attendees", []), ev.get("organizer", ""), user.email):
+            # Prep every meeting (internal + external) with someone else on it; skip solo holds.
+            others = [a for a in (ev.get("attendees") or []) if a and a != user.email]
+            if not others:
+                continue
+            if _external_only() and not _is_external(ev.get("attendees", []), ev.get("organizer", ""), user.email):
                 continue
             cached = prep_ops.get_cached(db, user, eid)
-            if cached and prep_ops._fresh(cached):
-                continue  # already prepared
+            if cached and cached.generated_at:
+                gen = cached.generated_at if cached.generated_at.tzinfo else cached.generated_at.replace(tzinfo=timezone.utc)
+                if (now - gen).total_seconds() < _PREP_REFRESH_MIN * 60:
+                    continue  # already prepared recently → still fresh for this meeting
             _prep_inflight.add(eid)
             task = asyncio.create_task(_prep_one(user.id, ev))
             _prep_tasks.add(task)
