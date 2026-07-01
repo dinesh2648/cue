@@ -297,9 +297,10 @@ async def get_access_token(db: Session, user_id: str, provider: str) -> str | No
 
 
 async def inprocess_read_tokens(db: Session, user_id: str | None) -> dict[str, str | None]:
-    """Live tokens for sources read IN-PROCESS (no hosted MCP): Google Drive, Gmail, Slack.
-    The agent reads these via each REST API + the user's token. None when absent/demo."""
-    keys = ("google_drive", "gmail", "slack")
+    """Live tokens for sources read IN-PROCESS (no hosted MCP): Google Drive, Gmail.
+    The agent reads these via each REST API + the user's token. None when absent/demo.
+    (Slack now uses its official hosted MCP, so it's not in this in-process set.)"""
+    keys = ("google_drive", "gmail")
     if not user_id:
         return {k: None for k in keys}
 

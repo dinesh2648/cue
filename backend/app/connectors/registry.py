@@ -185,7 +185,7 @@ CONNECTORS: dict[str, Connector] = {
         # Slack Web API (no hosted MCP). OAuth button also works if SLACK_CLIENT_ID/SECRET set.
         description="Channels, threads and message search from your Slack — for discussion context.",
         credentials_provider="slack",
-        default_mcp_url=None,  # read in-process via the Slack Web API + your token
+        default_mcp_url="https://mcp.slack.com/mcp",  # official hosted Slack MCP (streamable HTTP)
         oauth=OAuthConfig(
             authorize_url="https://slack.com/oauth/v2/authorize",
             token_url="https://slack.com/api/oauth.v2.access",
