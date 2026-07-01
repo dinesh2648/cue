@@ -364,6 +364,11 @@ def meeting_prep(meeting_id: str, user: User = Depends(get_current_user), db: Se
     meeting = _authorized(db, meeting_id, user)
     if not meeting.calendar_event_id:
         return {"found": False}
+    # Show the meeting owner's brief for their CURRENT persona — never a stale sales brief
+    # after they've switched to Tech (and vice-versa).
+    from ..prep_ops import _persona
+    owner = db.get(User, meeting.owner_user_id) if meeting.owner_user_id else None
+    want_persona = _persona(owner) if owner else None
     row = db.scalar(
         select(MeetingPrep)
         .where(
@@ -372,7 +377,7 @@ def meeting_prep(meeting_id: str, user: User = Depends(get_current_user), db: Se
         )
         .order_by(MeetingPrep.generated_at.desc())
     )
-    if row is None:
+    if row is None or (want_persona and (row.persona or "") != want_persona):
         return {"found": False}
     return {
         "found": True,
