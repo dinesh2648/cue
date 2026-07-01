@@ -88,11 +88,19 @@ async def refresh_token(provider: str, refresh: str) -> dict:
 
 
 def _normalize(tok: dict, label: str | None) -> dict:
+    access = tok.get("access_token")
+    scope = tok.get("scope", "")
+    # Slack's oauth.v2.access returns the USER token nested under authed_user (user_scope flow);
+    # prefer it so the agent reads as the user (search, channel history) rather than as a bot.
+    au = tok.get("authed_user") or {}
+    if au.get("access_token"):
+        access = au["access_token"]
+        scope = au.get("scope", scope)
     return {
-        "access_token": tok.get("access_token"),
-        "refresh_token": tok.get("refresh_token"),
-        "expires_in": tok.get("expires_in"),
-        "scope": tok.get("scope", ""),
+        "access_token": access,
+        "refresh_token": tok.get("refresh_token") or au.get("refresh_token"),
+        "expires_in": tok.get("expires_in") or au.get("expires_in"),
+        "scope": scope,
         "account_label": label or "",
     }
 
