@@ -139,6 +139,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     notion_token = await _live_token("notion")
     drive_token = await _live_token("google_drive")
     gmail_token = await _live_token("gmail")
+    slack_token = await _live_token("slack")
 
     ctx = {
         "title": event.get("title", ""),
@@ -153,6 +154,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     result = await prep.generate_prep(
         ctx, persona=_persona(user), servers=servers,
         notion_token=notion_token, drive_token=drive_token, gmail_token=gmail_token,
+        slack_token=slack_token,
     )
 
     # Replace any prior prep for this (user, event) so the cache holds one row.

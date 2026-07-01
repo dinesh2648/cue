@@ -53,10 +53,10 @@ class SalesPack(CopilotPack):
             # Pass the owner's connected remote MCP servers (HubSpot/…) plus their Google
             # Drive + Gmail tokens (read in-process — no hosted MCP), so the live copilot
             # researches across EVERY connected source, permission-scoped.
-            drive_token, gmail_token = await manager.google_read_tokens(db, meeting.owner_user_id)
+            tk = await manager.inprocess_read_tokens(db, meeting.owner_user_id)
             return await claude_sdk.run_turn(
                 text, intent.intent_type, meeting.crm_company_id, servers,
-                drive_token=drive_token, gmail_token=gmail_token,
+                drive_token=tk["google_drive"], gmail_token=tk["gmail"], slack_token=tk["slack"],
             )
         if claude_agent.available() and servers:
             return await claude_agent.run_turn(text, intent.intent_type, servers)

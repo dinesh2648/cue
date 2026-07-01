@@ -171,6 +171,28 @@ CONNECTORS: dict[str, Connector] = {
             userinfo_url="https://api.atlassian.com/me",
         ),
     ),
+    "slack": Connector(
+        key="slack",
+        name="Slack",
+        icon="💬",
+        category="Comms",
+        # Read channels, threads and search as you. Simplest connect: paste a Slack User OAuth
+        # Token (xoxp-…) from your Slack app — like the Notion PAT flow. Read in-process via the
+        # Slack Web API (no hosted MCP). OAuth button also works if SLACK_CLIENT_ID/SECRET set.
+        description="Channels, threads and message search from your Slack — for discussion context.",
+        credentials_provider="slack",
+        default_mcp_url=None,  # read in-process via the Slack Web API + your token
+        oauth=OAuthConfig(
+            authorize_url="https://slack.com/oauth/v2/authorize",
+            token_url="https://slack.com/api/oauth.v2.access",
+            scopes=[],  # bot scopes unused; user-token scopes go in user_scope below
+            extra_authorize_params={
+                "user_scope": "search:read,channels:history,channels:read,groups:history,users:read",
+            },
+            refreshable=False,
+            userinfo_url="https://slack.com/api/auth.test",
+        ),
+    ),
     "linkedin": Connector(
         key="linkedin",
         name="LinkedIn",

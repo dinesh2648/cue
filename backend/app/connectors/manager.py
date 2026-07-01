@@ -240,17 +240,18 @@ async def get_access_token(db: Session, user_id: str, provider: str) -> str | No
     return await _valid_access_token(db, conn)
 
 
-async def google_read_tokens(db: Session, user_id: str | None) -> tuple[str | None, str | None]:
-    """(drive_token, gmail_token) for the in-process Google read tools — these have no hosted
-    MCP, so the agent reads them via the REST API + the user's token. None when absent/demo."""
+async def inprocess_read_tokens(db: Session, user_id: str | None) -> dict[str, str | None]:
+    """Live tokens for sources read IN-PROCESS (no hosted MCP): Google Drive, Gmail, Slack.
+    The agent reads these via each REST API + the user's token. None when absent/demo."""
+    keys = ("google_drive", "gmail", "slack")
     if not user_id:
-        return None, None
+        return {k: None for k in keys}
 
     async def _live(provider: str) -> str | None:
         t = await get_access_token(db, user_id, provider)
         return None if (not t or t.startswith("demo-")) else t
 
-    return await _live("google_drive"), await _live("gmail")
+    return {k: await _live(k) for k in keys}
 
 
 async def active_mcp_servers(db: Session, user_id: str) -> list[dict]:

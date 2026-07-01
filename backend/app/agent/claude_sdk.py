@@ -22,6 +22,7 @@ from ..integrations import gmail as gmail_api
 from ..integrations import google_drive as drive_api
 from ..integrations import hubspot
 from ..integrations import notion as notion_api
+from ..integrations import slack as slack_api
 from ..knowledge.store import index
 
 log = logging.getLogger("copilot.claude_sdk")
@@ -74,7 +75,7 @@ def available() -> bool:
 async def run_turn(
     query: str, intent_type: str, company_id: str | None,
     servers: list[dict] | None = None, persona: str = "sales",
-    drive_token: str | None = None, gmail_token: str | None = None,
+    drive_token: str | None = None, gmail_token: str | None = None, slack_token: str | None = None,
 ) -> dict | None:
     if not available():
         return None
@@ -233,10 +234,38 @@ async def run_turn(
 
         gmail_tools = [search_gmail, read_email]
 
+    # In-process Slack tools (no hosted MCP — read via the Slack Web API + user token).
+    slack_tools = []
+    if slack_token:
+        @tool("search_slack", "Search the signed-in user's Slack messages for a topic/customer.", {"query": str})
+        async def search_slack(args: dict) -> dict:
+            used_user.add("slack")
+            used_tools.append("slack")
+            try:
+                hits = await slack_api.search(slack_token, args.get("query", ""), k=8)
+            except Exception as exc:
+                return {"content": [{"type": "text", "text": f"Slack search failed: {exc}"}]}
+            for h in hits[:6]:
+                sources.append({"label": f"Slack · #{h.get('channel', '')}", "type": "connector", "detail": "your Slack", "url": h.get("permalink", "")})
+            return {"content": [{"type": "text", "text": json.dumps(hits)[:3000]}]}
+
+        @tool("read_slack_channel", "Read recent messages in a Slack channel by name (e.g. 'engineering').", {"channel": str})
+        async def read_slack_channel(args: dict) -> dict:
+            used_user.add("slack")
+            used_tools.append("slack")
+            try:
+                cid = await slack_api.find_channel(slack_token, args.get("channel", ""))
+                msgs = await slack_api.channel_history(slack_token, cid) if cid else []
+            except Exception as exc:
+                return {"content": [{"type": "text", "text": f"Slack read failed: {exc}"}]}
+            return {"content": [{"type": "text", "text": json.dumps(msgs)[:3000] or "(no messages)"}]}
+
+        slack_tools = [search_slack, read_slack_channel]
+
     os.makedirs(_SCRATCH, exist_ok=True)  # survive ephemeral cleanup mid-session
     server = create_sdk_mcp_server(
         "copilot",
-        tools=[get_account_context, list_open_tickets, search_enterprise_docs, *notion_tools, *drive_tools, *gmail_tools],
+        tools=[get_account_context, list_open_tickets, search_enterprise_docs, *notion_tools, *drive_tools, *gmail_tools, *slack_tools],
     )
     mcp_servers: dict = {"copilot": server}
     allowed = [
@@ -252,6 +281,8 @@ async def run_turn(
         allowed += ["mcp__copilot__search_drive", "mcp__copilot__read_drive_file"]
     if gmail_token:
         allowed += ["mcp__copilot__search_gmail", "mcp__copilot__read_email"]
+    if slack_token:
+        allowed += ["mcp__copilot__search_slack", "mcp__copilot__read_slack_channel"]
 
     # Attach the owner's connected REMOTE MCP servers (HubSpot, …) with their OAuth token.
     # Notion is handled in-process above (its hosted MCP rejects PATs), so skip it here.
@@ -276,7 +307,7 @@ async def run_turn(
         system_prompt=_SYSTEM_TECH if persona == "tech" else _SYSTEM,
         permission_mode="bypassPermissions",
         setting_sources=[],
-        max_turns=8 if (user_servers or notion_token or drive_token or gmail_token) else 6,
+        max_turns=8 if (user_servers or notion_token or drive_token or gmail_token or slack_token) else 6,
         cwd=_SCRATCH,
     )
 

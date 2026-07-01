@@ -18,6 +18,7 @@ import os
 from ..integrations import gmail as gmail_api
 from ..integrations import google_drive as drive_api
 from ..integrations import notion as notion_api
+from ..integrations import slack as slack_api
 from ..integrations.llm import llm_complete
 
 log = logging.getLogger("copilot.prep")
@@ -86,6 +87,7 @@ def _context_block(ctx: dict) -> str:
 async def _agent_brief(
     ctx: dict, persona: str, servers: list[dict],
     notion_token: str | None, drive_token: str | None, gmail_token: str | None,
+    slack_token: str | None = None,
 ) -> dict | None:
     """Run the Claude Agent SDK with the user's connected sources + web. None on failure.
 
@@ -169,6 +171,27 @@ async def _agent_brief(
         inproc_tools += [search_gmail, read_email]
         allowed_inproc += ["mcp__prep__search_gmail", "mcp__prep__read_email"]
 
+    if slack_token:
+        @tool("search_slack", "Search the user's Slack messages for a topic/customer.", {"query": str})
+        async def search_slack(args):  # noqa: ANN001
+            try:
+                hits = await slack_api.search(slack_token, args.get("query", ""), k=8)
+            except Exception as exc:  # pragma: no cover
+                return {"content": [{"type": "text", "text": f"Slack search failed: {exc}"}]}
+            return {"content": [{"type": "text", "text": json.dumps(hits)[:3000]}]}
+
+        @tool("read_slack_channel", "Read recent messages in a Slack channel by name (e.g. 'engineering').", {"channel": str})
+        async def read_slack_channel(args):  # noqa: ANN001
+            try:
+                cid = await slack_api.find_channel(slack_token, args.get("channel", ""))
+                msgs = await slack_api.channel_history(slack_token, cid) if cid else []
+            except Exception as exc:  # pragma: no cover
+                return {"content": [{"type": "text", "text": f"Slack read failed: {exc}"}]}
+            return {"content": [{"type": "text", "text": json.dumps(msgs)[:3000] or "(no messages)"}]}
+
+        inproc_tools += [search_slack, read_slack_channel]
+        allowed_inproc += ["mcp__prep__search_slack", "mcp__prep__read_slack_channel"]
+
     os.makedirs(_SCRATCH, exist_ok=True)
     mcp_servers: dict = {}
     allowed = ["WebSearch", "WebFetch"]
@@ -227,13 +250,15 @@ async def _agent_brief(
                         nm = (getattr(block, "name", "") or "").lower()
                         if "websearch" in nm or "webfetch" in nm:
                             used_web = True
-                        elif nm.startswith("mcp__prep__"):  # in-process Notion/Drive/Gmail
+                        elif nm.startswith("mcp__prep__"):  # in-process Notion/Drive/Gmail/Slack
                             if "notion" in nm:
                                 used.add("notion")
                             elif "drive" in nm:
                                 used.add("google_drive")
                             elif "gmail" in nm or "email" in nm:
                                 used.add("gmail")
+                            elif "slack" in nm:
+                                used.add("slack")
                         else:
                             for sn in attached:  # remote MCP servers (hubspot, github, jira)
                                 if nm.startswith(f"mcp__{sn.lower()}"):
@@ -297,15 +322,16 @@ def _offline_brief(ctx: dict) -> dict:
 async def generate_prep(
     ctx: dict, *, persona: str, servers: list[dict] | None,
     notion_token: str | None = None, drive_token: str | None = None, gmail_token: str | None = None,
+    slack_token: str | None = None,
 ) -> dict:
     """Best brief we can produce: agent (live tools) → LLM compose → deterministic.
 
     Every tier is guarded — a failure in one degrades to the next, never to a 500. The
     offline brief (from the internal context we already gathered) is the guaranteed floor.
     """
-    if servers or notion_token or drive_token or gmail_token:
+    if servers or notion_token or drive_token or gmail_token or slack_token:
         try:
-            agent = await _agent_brief(ctx, persona, servers or [], notion_token, drive_token, gmail_token)
+            agent = await _agent_brief(ctx, persona, servers or [], notion_token, drive_token, gmail_token, slack_token)
             if agent:
                 return agent
         except Exception as exc:  # SDK/subprocess/tool failure — fall back to compose
