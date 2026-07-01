@@ -109,6 +109,7 @@ CONNECTORS: dict[str, Connector] = {
         description="Internal wikis, runbooks, product docs from your Notion workspace.",
         credentials_provider="notion",
         default_mcp_url="https://mcp.notion.com/mcp",
+        dcr=True,  # Notion's MCP supports OAuth Dynamic Client Registration → one-click connect
         oauth=OAuthConfig(
             authorize_url="https://api.notion.com/v1/oauth/authorize",
             token_url="https://api.notion.com/v1/oauth/token",

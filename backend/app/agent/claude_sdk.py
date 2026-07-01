@@ -101,11 +101,12 @@ async def run_turn(
     used_tools: list[str] = []
     used_user: set[str] = set()
 
-    # Notion is read via the Notion API directly (PAT or OAuth token) — its hosted MCP
-    # requires its own OAuth handshake and rejects a static PAT.
+    # Notion via a static PAT is read in-process (its hosted MCP rejects PATs). A DCR OAuth
+    # connection (inprocess=False) instead flows through the hosted Notion MCP as a remote server.
     notion_token = next(
         (s.get("token") for s in (servers or [])
-         if s.get("name") == "notion" and s.get("token") and not str(s["token"]).startswith("demo-")),
+         if s.get("name") == "notion" and s.get("inprocess")
+         and s.get("token") and not str(s["token"]).startswith("demo-")),
         None,
     )
 
@@ -285,11 +286,11 @@ async def run_turn(
         allowed += ["mcp__copilot__search_slack", "mcp__copilot__read_slack_channel"]
 
     # Attach the owner's connected REMOTE MCP servers (HubSpot, …) with their OAuth token.
-    # Notion is handled in-process above (its hosted MCP rejects PATs), so skip it here.
+    # Skip in-process sources (PAT-Notion handled above); everything else is a remote MCP server.
     user_servers: set[str] = set()
     for s in servers or []:
         name, url, token = s.get("name"), s.get("url"), s.get("token")
-        if not (name and url) or name == "notion":
+        if not (name and url) or s.get("inprocess"):
             continue
         if token and token.startswith("demo-"):
             continue  # placeholder demo connection — not a real credential

@@ -202,7 +202,7 @@ async def _agent_brief(
     attached: set[str] = set()  # remote MCP servers wired in (hubspot, github, jira, …)
     for s in servers or []:
         name, url, token = s.get("name"), s.get("url"), s.get("token")
-        if not (name and url) or name == "notion":
+        if not (name and url) or s.get("inprocess"):  # in-process sources (PAT-Notion) handled separately
             continue
         if persona == "tech" and name == "linkedin":
             continue

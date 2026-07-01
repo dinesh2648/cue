@@ -136,7 +136,12 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         tok = await get_access_token(db, user.id, provider)
         return None if (not tok or tok.startswith("demo-")) else tok
 
-    notion_token = await _live_token("notion")
+    # Notion in-process only for a PAT connection; a DCR connection flows via the remote MCP
+    # server in `servers` above (its OAuth token isn't a Notion API PAT).
+    from .connectors.manager import get_connection
+    _nconn = get_connection(db, user.id, "notion")
+    notion_is_dcr = bool(_nconn and (_nconn.oauth_meta or {}).get("token_endpoint"))
+    notion_token = None if notion_is_dcr else await _live_token("notion")
     drive_token = await _live_token("google_drive")
     gmail_token = await _live_token("gmail")
     slack_token = await _live_token("slack")

@@ -330,5 +330,12 @@ async def active_mcp_servers(db: Session, user_id: str) -> list[dict]:
         if not token:
             continue
         transport = CONNECTORS[conn.provider].mcp_transport if conn.provider in CONNECTORS else "http"
-        servers.append({"name": conn.provider, "url": url, "token": token, "transport": transport})
+        # Notion via a static PAT must be read IN-PROCESS (its hosted MCP rejects PATs); via a
+        # DCR OAuth token it works as a normal remote MCP server. Flag it so the agents route
+        # each correctly. Other providers are always remote.
+        inprocess = conn.provider == "notion" and not (conn.oauth_meta or {}).get("token_endpoint")
+        servers.append({
+            "name": conn.provider, "url": url, "token": token,
+            "transport": transport, "inprocess": inprocess,
+        })
     return servers
