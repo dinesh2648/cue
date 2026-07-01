@@ -185,7 +185,11 @@ CONNECTORS: dict[str, Connector] = {
         # Slack Web API (no hosted MCP). OAuth button also works if SLACK_CLIENT_ID/SECRET set.
         description="Channels, threads and message search from your Slack — for discussion context.",
         credentials_provider="slack",
-        default_mcp_url="https://mcp.slack.com/mcp",  # official hosted Slack MCP (streamable HTTP)
+        # Read IN-PROCESS via the Slack Web API + the user's token. The hosted mcp.slack.com MCP
+        # requires the Slack app to be individually enabled for "Slack MCP server access"
+        # (api.slack.com/apps/<id>/app-assistant); until then it 400s, so in-process is the
+        # reliable path. Point SLACK_MCP_URL at the hosted MCP once the app is MCP-enabled.
+        default_mcp_url=None,
         oauth=OAuthConfig(
             authorize_url="https://slack.com/oauth/v2/authorize",
             token_url="https://slack.com/api/oauth.v2.access",

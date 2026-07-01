@@ -55,12 +55,21 @@ async def channel_history(token: str, channel_id: str, limit: int = 20) -> list[
 
 
 async def find_channel(token: str, name: str) -> str | None:
-    """Resolve a channel name (e.g. 'engineering') to its id, for channel_history."""
+    """Resolve a channel name (e.g. 'engineering') to its id, for channel_history.
+
+    Lists public channels (channels:read). Private channels additionally need groups:read; we
+    try to include them but fall back to public-only so a missing groups:read doesn't error out.
+    """
     name = (name or "").lstrip("#").lower()
     if not name:
         return None
-    data = await _get(token, "conversations.list", {"limit": 200, "types": "public_channel,private_channel"})
-    for ch in data.get("channels", []) or []:
-        if (ch.get("name") or "").lower() == name:
-            return ch.get("id")
+    for types in ("public_channel,private_channel", "public_channel"):
+        try:
+            data = await _get(token, "conversations.list", {"limit": 200, "types": types, "exclude_archived": "true"})
+        except RuntimeError:
+            continue  # e.g. missing_scope for private channels → retry public-only
+        for ch in data.get("channels", []) or []:
+            if (ch.get("name") or "").lower() == name:
+                return ch.get("id")
+        return None  # listed successfully but no match
     return None
