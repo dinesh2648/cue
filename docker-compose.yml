@@ -58,7 +58,9 @@ services:
       POSTGRES_USER: copilot
       POSTGRES_PASSWORD: copilot
       POSTGRES_DB: copilot
-    ports: ["5432:5432"]
+    # Host publish is only for reaching the DB from the VM host; the backend talks to it over
+    # the internal network as `postgres:5432`. Override POSTGRES_PORT if 5432 is taken on the host.
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U copilot -d copilot"]
