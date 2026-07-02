@@ -25,4 +25,5 @@ case "${DATABASE_URL:-}" in
 esac
 
 echo "[entrypoint] Starting API on :8000"
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+# --proxy-headers + trust all forwarders: correct client IP/scheme when behind nginx.
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
