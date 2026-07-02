@@ -17,6 +17,12 @@ RUN npm run build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+# next.config.mjs derives basePath from this at RUNTIME too (next start reloads the config),
+# so it must be set in this stage — not only in build — or the server serves at root ("/_next")
+# while the build baked "/cue/_next", and every asset 404s. Re-declare the ARG to receive the
+# same --build-arg value compose passes, then bake it into the runtime image as an ENV.
+ARG NEXT_PUBLIC_BASE_PATH=
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json

@@ -52,6 +52,9 @@ services:
         NEXT_PUBLIC_BASE_PATH: ${BASE_PATH:-}   # e.g. /cue when hosting under a sub-path
     restart: unless-stopped
     ports: ["${FRONTEND_PORT:-3000}:3000"]
+    # next start re-reads next.config.mjs at runtime; basePath must match the build arg above.
+    environment:
+      NEXT_PUBLIC_BASE_PATH: ${BASE_PATH:-}
     depends_on:
       backend:
         condition: service_healthy
