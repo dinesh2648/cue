@@ -124,7 +124,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   const signOut = () => {
     window.localStorage.removeItem(TOKEN_KEY);
-    window.location.href = "/";
+    // Go to the app root under the sub-path (basePath), not the domain root (the HRMS app).
+    window.location.href = (process.env.NEXT_PUBLIC_BASE_PATH || "") + "/";
   };
 
   if (phase === "loading") {

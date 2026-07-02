@@ -52,7 +52,7 @@ export default function SettingsPage() {
     const q = new URLSearchParams(window.location.search);
     if (q.get("upgraded")) {
       setToast(`✓ Upgraded to ${q.get("upgraded")}`);
-      window.history.replaceState({}, "", "/settings");
+      window.history.replaceState({}, "", window.location.pathname);
       setTimeout(() => setToast(null), 2600);
       setTimeout(load, 300);
     }

@@ -26,12 +26,12 @@ export default function ConnectionsPage() {
     const q = new URLSearchParams(window.location.search);
     if (q.get("connected")) {
       setToast(`✓ Connected ${q.get("connected")}`);
-      window.history.replaceState({}, "", "/connections");
+      window.history.replaceState({}, "", window.location.pathname);
       setTimeout(() => setToast(null), 2600);
     } else if (q.get("error")) {
       const e = q.get("error");
       setToast(e === "denied" ? "Authorization cancelled" : `Connection failed: ${e}`);
-      window.history.replaceState({}, "", "/connections");
+      window.history.replaceState({}, "", window.location.pathname);
       setTimeout(() => setToast(null), 3200);
     }
   }, [load]);
