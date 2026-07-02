@@ -40,5 +40,7 @@ class TechPack(SalesPack):
                 context=context,
             )
         if claude_agent.available() and servers:
-            return await claude_agent.run_turn(text, intent.intent_type, servers)
+            return await claude_agent.run_turn(
+                text, intent.intent_type, servers, persona="tech", context=context
+            )
         return None

@@ -24,24 +24,47 @@ _PROVIDER_LABEL = {
     "google_drive": ("Google Drive", "document"),
     "gmail": ("Gmail", "email"),
     "notion": ("Notion", "document"),
+    "github": ("GitHub", "connector"),
+    "jira": ("Jira", "connector"),
+    "slack": ("Slack", "connector"),
 }
 
-_SYSTEM = (
+_SYSTEM_SALES = (
     "You are a virtual Sales Engineer assisting a sales rep live during a customer call. "
-    "A customer just asked a question. Use the connected tools (CRM, Drive, Gmail, Notion) to "
+    "A customer just asked a question. Use the connected tools to "
     "find the facts and answer it. The tools already enforce the rep's own access — only use "
     "what they return; never invent specifics. Reply with a concise, warm, ready-to-say response "
     "(2-4 sentences) the rep can speak immediately. If you cannot find the answer, say what you'd "
     "check next. Do not include citations inline — they are tracked separately."
 )
 
+_SYSTEM_TECH = (
+    "You are a technical copilot assisting an engineer live during a working session or technical "
+    "meeting. Someone just asked a question. Use the connected tools to find the facts — code, "
+    "pull requests, issues, tickets, docs, threads — and answer it. Reach for GitHub for code/PRs/"
+    "repos and Jira for tickets/sprints whenever the question touches them. The tools enforce the "
+    "user's own access — only use what they return; never invent specifics. Reply with a concise, "
+    "precise, ready-to-say response (2-4 sentences). If you cannot find the answer, say what you'd "
+    "check next. Do not include citations inline — they are tracked separately."
+)
+
+
+def _system(persona: str) -> str:
+    return _SYSTEM_TECH if persona == "tech" else _SYSTEM_SALES
+
 
 def available() -> bool:
     return bool(settings.anthropic_api_key) and settings.resolved_agent_engine == "messages_mcp"
 
 
-async def run_turn(query: str, intent_type: str, mcp_servers: list[dict]) -> dict | None:
-    """Answer one customer question using the user's live MCP tools. None on fallback."""
+async def run_turn(
+    query: str,
+    intent_type: str,
+    mcp_servers: list[dict],
+    persona: str = "sales",
+    context: str = "",
+) -> dict | None:
+    """Answer one question using the user's live MCP tools. None on fallback."""
     if not available():
         return None
 
@@ -54,19 +77,33 @@ async def run_turn(query: str, intent_type: str, mcp_servers: list[dict]) -> dic
         {"type": "url", "url": s["url"], "name": s["name"], "authorization_token": s["token"]}
         for s in mcp_servers
     ]
+    connected = ", ".join(sorted({s.get("name", "") for s in mcp_servers if s.get("name")}))
 
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-    user_msg = (
-        f"The customer asked: \"{query}\"\n"
+    who = "person" if persona == "tech" else "customer"
+    parts: list[str] = []
+    if context:
+        parts.append(
+            "Recent conversation (resolve references like 'that' / 'it' / 'the last one' against "
+            f"it, then answer the REAL question):\n{context}"
+        )
+    parts.append(f'The {who} asked: "{query}"')
+    if connected:
+        parts.append(
+            f"You have live, permission-scoped access to these connected tools: {connected}. "
+            "Call whichever are relevant — don't answer from memory when a tool can confirm."
+        )
+    parts.append(
         f"(Detected topic: {intent_type}.) Find the answer using the connected tools and "
-        f"give me the response I should say."
+        "give me the response to say."
     )
+    user_msg = "\n\n".join(parts)
 
     try:
         kwargs: dict = {
             "model": settings.anthropic_model,
             "max_tokens": 600,
-            "system": _SYSTEM,
+            "system": _system(persona),
             "messages": [{"role": "user", "content": user_msg}],
         }
         if servers_payload:
@@ -86,6 +123,7 @@ def _parse(resp, mcp_servers: list[dict]) -> dict:
     answer_parts: list[str] = []
     used_providers: list[str] = []
     evidence: list[str] = []
+    errors: list[str] = []
 
     for block in resp.content:
         btype = getattr(block, "type", "")
@@ -96,9 +134,21 @@ def _parse(resp, mcp_servers: list[dict]) -> dict:
             if provider and provider not in used_providers:
                 used_providers.append(provider)
         elif btype == "mcp_tool_result":
+            if getattr(block, "is_error", False):
+                errors.append(f"{getattr(block, 'server_name', '?')}: {_result_text(block)[:300]}")
+                continue
             snippet = _result_text(block)
             if snippet:
                 evidence.append(snippet[:200])
+
+    # Diagnostics: which servers were offered, which Claude actually called, and any tool errors
+    # (e.g. a connector rejecting the token) — otherwise "connected but no data" is invisible.
+    if errors:
+        log.warning("MCP tool errors during answer: %s", " | ".join(errors))
+    log.info(
+        "live answer: offered=[%s] used=%s evidence=%d",
+        ", ".join(s.get("name", "") for s in mcp_servers), used_providers, len(evidence),
+    )
 
     sources = []
     for p in used_providers:
