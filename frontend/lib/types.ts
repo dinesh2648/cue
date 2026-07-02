@@ -234,3 +234,18 @@ export type WSEvent =
   | { type: "summary"; data: Summary }
   | { type: "crm_sync"; data: { synced: boolean } }
   | { type: "error"; data: { message: string } };
+
+export interface AskResult {
+  answer: string;
+  evidence: string[];
+  sources: { label: string; type: string; detail: string; url: string }[];
+  confidence: number;
+  engine: string;
+  grounded: boolean;
+  persona: "sales" | "tech";
+  intent: string;
+  connected: string[]; // sources available to the agent
+  used: string[]; // sources it actually cited
+  deep_ran: boolean;
+  latency_ms: number;
+}

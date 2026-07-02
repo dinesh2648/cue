@@ -37,6 +37,9 @@ function Header({ user, onSignOut }: { user: Me | null; onSignOut: () => void })
         </span>
       </Link>
       <span className="spacer" />
+      <Link href="/ask" className="btn ghost sm">
+        💬 Ask
+      </Link>
       <Link href="/team" className="btn ghost sm">
         📊 Team
       </Link>

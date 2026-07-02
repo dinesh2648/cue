@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepRecord, Scorecard, TeamCoaching } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepRecord, Scorecard, TeamCoaching, AskResult } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -124,6 +124,9 @@ export const api = {
       body: JSON.stringify({ token, mcp_url: mcp_url || null, account_label: account_label || "" }),
     }),
   disconnect: (provider: string) => request<{ ok: boolean }>(`/api/connectors/${provider}/disconnect`, { method: "POST" }),
+
+  ask: (query: string, context = "") =>
+    request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context }) }),
 };
 
 export async function meetingSocket(id: string): Promise<WebSocket> {

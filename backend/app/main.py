@@ -16,7 +16,7 @@ from .knowledge.store import index
 from .models import KnowledgeDoc, Meeting, Suggestion
 from .realtime.engine import process_utterance
 from .realtime.manager import manager
-from .routers import account, actions, auth, billing, calendar, connectors, crm, knowledge, meetings, webhooks
+from .routers import account, actions, ask, auth, billing, calendar, connectors, crm, knowledge, meetings, webhooks
 from .security.auth import user_from_token
 from .seed.data import seed_if_empty
 
@@ -122,6 +122,7 @@ app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(calendar.router)
 app.include_router(connectors.router)
+app.include_router(ask.router)
 app.include_router(actions.router)
 app.include_router(meetings.router)
 app.include_router(knowledge.router)
