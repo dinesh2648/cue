@@ -48,15 +48,17 @@ class SalesPack(CopilotPack):
             "grounded": result.get("grounded", True),
         }
 
-    async def deep_answer(self, *, db, meeting, text, intent, servers) -> dict | None:
+    async def deep_answer(self, *, db, meeting, text, intent, servers, context="") -> dict | None:
         if claude_sdk.available():
             # Pass the owner's connected remote MCP servers (HubSpot/…) plus their Google
             # Drive + Gmail tokens (read in-process — no hosted MCP), so the live copilot
-            # researches across EVERY connected source, permission-scoped.
+            # researches across EVERY connected source, permission-scoped. `context` = the recent
+            # conversation so the answer reflects the thread, not just the latest utterance.
             tk = await manager.inprocess_read_tokens(db, meeting.owner_user_id)
             return await claude_sdk.run_turn(
                 text, intent.intent_type, meeting.crm_company_id, servers,
                 drive_token=tk["google_drive"], gmail_token=tk["gmail"], slack_token=tk["slack"],
+                context=context,
             )
         if claude_agent.available() and servers:
             return await claude_agent.run_turn(text, intent.intent_type, servers)

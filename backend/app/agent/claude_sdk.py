@@ -79,6 +79,7 @@ async def run_turn(
     query: str, intent_type: str, company_id: str | None,
     servers: list[dict] | None = None, persona: str = "sales",
     drive_token: str | None = None, gmail_token: str | None = None, slack_token: str | None = None,
+    context: str = "",
 ) -> dict | None:
     if not available():
         return None
@@ -315,11 +316,20 @@ async def run_turn(
         cwd=_SCRATCH,
     )
 
+    convo = (
+        "Recent conversation (oldest→newest, so you understand what's actually being asked — "
+        f"resolve 'it/that/they/them', follow-ups and continuations from this):\n{context}\n\n"
+        if context.strip() else ""
+    )
     prompt = (
-        f'The other person asked: "{query}" (topic: {intent_type}). '
+        f"{convo}"
+        f'The latest turn to answer is: "{query}" (detected topic: {intent_type}).\n'
+        "First work out the REAL question in the context of the conversation above (it may be a "
+        "follow-up that only makes sense with the prior turns, or reference something said earlier). "
         "If it's about our customer account, contract, support, security, pricing or product, use the "
         "CRM/docs tools. Otherwise — company/market/person research or any current fact — research it "
-        "live with WebSearch (and WebFetch). Then give me the short answer."
+        "live with WebSearch (and WebFetch). Then give the rep a short, direct answer to what was "
+        "actually asked."
     )
 
     answer_parts: list[str] = []

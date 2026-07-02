@@ -53,9 +53,10 @@ class CopilotPack:
         raise NotImplementedError
 
     async def deep_answer(
-        self, *, db, meeting, text: str, intent: IntentResult, servers: list[dict]
+        self, *, db, meeting, text: str, intent: IntentResult, servers: list[dict], context: str = ""
     ) -> dict | None:
-        """Tier 2: richer agentic answer that upgrades the card in place (or None to skip)."""
+        """Tier 2: richer agentic answer that upgrades the card in place (or None to skip).
+        `context` is the recent conversation so the answer reflects the thread, not one utterance."""
         return None
 
     # ── Post-meeting ────────────────────────────────────────────────────────────

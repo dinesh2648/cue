@@ -187,7 +187,8 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
         if deep_will_run:
             t1 = time.perf_counter()
             deep = await pack.deep_answer(
-                db=db, meeting=meeting, text=query, intent=intent_res, servers=servers
+                db=db, meeting=meeting, text=query, intent=intent_res, servers=servers,
+                context="\n".join(recent),
             )
             deep_latency = int((time.perf_counter() - t1) * 1000)
             if deep:
