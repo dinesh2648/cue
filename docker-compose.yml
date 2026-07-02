@@ -6,6 +6,9 @@ services:
     build: ./backend
     restart: unless-stopped
     ports: ["${BACKEND_PORT:-8000}:8000"]
+    # Lets the container reach a Postgres running on the VM host via host.docker.internal
+    # (only used if DATABASE_URL points there instead of the compose `postgres` service).
+    extra_hosts: ["host.docker.internal:host-gateway"]
     environment:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
