@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
-import type { TeamCoaching, TeamRep } from "@/lib/types";
+import type { TeamCoaching, TeamRep, TeamMember } from "@/lib/types";
 
 function scoreColor(n: number): string {
   if (n >= 75) return "var(--green, #34d399)";
@@ -76,12 +77,73 @@ function RepCard({ rep, rank }: { rep: TeamRep; rank: number }) {
   );
 }
 
+function fmtDate(d: string): string {
+  if (!d) return "";
+  const t = new Date(d);
+  return isNaN(t.getTime()) ? "" : t.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function MemberCard({ m }: { m: TeamMember }) {
+  const [open, setOpen] = useState(m.meeting_count > 0 && m.meeting_count <= 4);
+  const teamLabel = m.team === "tech" ? "Tech" : m.team === "ops" ? "Ops" : "Sales";
+  return (
+    <div className="card pad" style={{ marginBottom: 12 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", cursor: m.meeting_count ? "pointer" : "default" }}
+        onClick={() => m.meeting_count && setOpen(!open)}
+      >
+        <span style={{ width: 42, height: 42, borderRadius: "50%", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 16, background: "var(--surface-2)", color: "var(--muted)" }}>
+          {(m.name || "?").charAt(0).toUpperCase()}
+        </span>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontWeight: 700 }}>
+            {m.name} <span className="badge">{teamLabel}</span> <span className="badge">{m.role}</span>
+          </div>
+          <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>
+            {m.email} · {m.meeting_count} meeting{m.meeting_count === 1 ? "" : "s"}
+            {m.avg_score != null ? <> · <span style={{ color: scoreColor(m.avg_score), fontWeight: 700 }}>avg {m.avg_score}</span></> : null}
+          </div>
+        </div>
+        {m.meeting_count > 0 && <span style={{ color: "var(--faint)" }}>{open ? "▾" : "▸"}</span>}
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          {m.meetings.map((mt) => (
+            <Link key={mt.id} href={`/meeting/${mt.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+              <div className="card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{mt.title}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                    {fmtDate(mt.date)} · {mt.status}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11.5, alignItems: "center" }}>
+                  <span className="badge">{mt.persona === "tech" ? "Tech" : "Sales"}</span>
+                  {mt.has_transcript && <span className="source-chip">📄 Transcript</span>}
+                  {mt.suggestions > 0 && <span className="source-chip">💡 {mt.suggestions} live answers</span>}
+                  {mt.has_summary && <span className="source-chip">📝 Summary</span>}
+                  {mt.has_recording && <span className="source-chip">🎥 Recording</span>}
+                  {mt.score != null && <span className="source-chip" style={{ fontWeight: 700, color: scoreColor(mt.score) }}>⭐ {mt.score}</span>}
+                </div>
+              </div>
+            </Link>
+          ))}
+          {m.meeting_count === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No meetings yet.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TeamPage() {
   const [data, setData] = useState<TeamCoaching | null>(null);
+  const [members, setMembers] = useState<TeamMember[] | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
     api.teamCoaching().then(setData).catch(() => setErr(true));
+    api.teamMembers().then((d) => setMembers(d.members)).catch(() => {});
   }, []);
 
   return (
@@ -112,6 +174,17 @@ export default function TeamPage() {
           </div>
           {data.reps.map((rep, i) => <RepCard key={rep.rep_name} rep={rep} rank={i + 1} />)}
         </>
+      )}
+
+      {members && members.length > 0 && (
+        <section style={{ marginTop: 32 }}>
+          <h2 style={{ fontSize: 20, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Team members &amp; meetings</h2>
+          <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 0, marginBottom: 14 }}>
+            Everyone you can see, with their meetings. Open any meeting for its transcript, live answers,
+            summary and recording.
+          </p>
+          {members.map((m) => <MemberCard key={m.id} m={m} />)}
+        </section>
       )}
     </main>
   );

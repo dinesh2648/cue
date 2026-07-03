@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepRecord, Scorecard, TeamCoaching, AskResult } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -76,6 +76,7 @@ export const api = {
   scorecard: (id: string, refresh = false) =>
     request<Scorecard>(`/api/meetings/${id}/scorecard${refresh ? "?refresh=1" : ""}`),
   teamCoaching: () => request<TeamCoaching>("/api/team/coaching"),
+  teamMembers: () => request<TeamMembers>("/api/team/members"),
 
   // Approve-then-act
   listActions: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions`),

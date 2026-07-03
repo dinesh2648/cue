@@ -5,12 +5,20 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import Meeting, MeetingScorecard, Organization, User
+from ..models import (
+    Meeting,
+    MeetingScorecard,
+    MeetingSummary,
+    Organization,
+    Suggestion,
+    TranscriptSegment,
+    User,
+)
 from ..security.auth import get_current_org, get_current_user, visible_user_ids
 
 router = APIRouter(prefix="/api", tags=["account"])
@@ -155,6 +163,68 @@ def team_coaching(user: User = Depends(get_current_user), db: Session = Depends(
         })
     reps.sort(key=lambda r: -r["avg_score"])
     return {"reps": reps, "scored_calls": len(rows)}
+
+
+@router.get("/team/members")
+def team_members(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Per-member roster (RBAC-scoped): each visible teammate with their meetings and the
+    artifacts available on each — transcript, live suggestions, summary, scorecard, recording.
+    The frontend links each meeting to its detail page, where those artifacts are shown."""
+    vis = visible_user_ids(db, user)
+    members = list(db.scalars(select(User).where(User.id.in_(vis))))
+    meetings = list(
+        db.scalars(select(Meeting).where(Meeting.owner_user_id.in_(vis)).order_by(Meeting.created_at.desc()))
+    )
+    mids = [m.id for m in meetings]
+
+    def _counts(col):
+        if not mids:
+            return {}
+        return {r[0]: r[1] for r in db.execute(select(col, func.count()).where(col.in_(mids)).group_by(col)).all()}
+
+    seg_counts = _counts(TranscriptSegment.meeting_id)
+    sugg_counts = _counts(Suggestion.meeting_id)
+    summ_ids = set(db.scalars(select(MeetingSummary.meeting_id).where(MeetingSummary.meeting_id.in_(mids)))) if mids else set()
+    scores = (
+        {r[0]: r[1] for r in db.execute(
+            select(MeetingScorecard.meeting_id, MeetingScorecard.overall_score).where(MeetingScorecard.meeting_id.in_(mids))
+        ).all()}
+        if mids else {}
+    )
+
+    by_owner: dict[str, list[dict]] = {}
+    for m in meetings:
+        when = m.ended_at or m.created_at
+        by_owner.setdefault(m.owner_user_id or "", []).append({
+            "id": m.id,
+            "title": m.title or m.customer_company or "Untitled meeting",
+            "customer": m.customer_company,
+            "date": when.isoformat() if when else "",
+            "status": m.status,
+            "persona": "tech" if m.pack == "tech" else "sales",
+            "suggestions": sugg_counts.get(m.id, 0),
+            "has_transcript": seg_counts.get(m.id, 0) > 0,
+            "has_summary": m.id in summ_ids,
+            "has_recording": bool(m.recall_bot_id),
+            "score": scores.get(m.id),
+        })
+
+    out = []
+    for mem in members:
+        ms = by_owner.get(mem.id, [])
+        scored = [x["score"] for x in ms if x["score"] is not None]
+        out.append({
+            "id": mem.id,
+            "name": mem.name or mem.email or "Unknown",
+            "email": mem.email,
+            "role": mem.role,
+            "team": mem.team,
+            "meeting_count": len(ms),
+            "avg_score": round(sum(scored) / len(scored)) if scored else None,
+            "meetings": ms[:50],
+        })
+    out.sort(key=lambda x: (-x["meeting_count"], (x["name"] or "").lower()))
+    return {"members": out}
 
 
 @router.get("/packs")

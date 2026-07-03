@@ -141,6 +141,33 @@ export interface TeamCoaching {
   reps: TeamRep[];
 }
 
+export interface TeamMemberMeeting {
+  id: string;
+  title: string;
+  customer: string;
+  date: string;
+  status: string;
+  persona: "sales" | "tech";
+  suggestions: number;
+  has_transcript: boolean;
+  has_summary: boolean;
+  has_recording: boolean;
+  score: number | null;
+}
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  team: string;
+  meeting_count: number;
+  avg_score: number | null;
+  meetings: TeamMemberMeeting[];
+}
+export interface TeamMembers {
+  members: TeamMember[];
+}
+
 export interface Summary {
   executive_summary: string;
   key_decisions: string[];
