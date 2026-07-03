@@ -25,7 +25,7 @@ log = logging.getLogger("copilot.prep")
 
 _SCRATCH = os.path.join(os.path.sep, "tmp", "cue-agent-prep")
 
-_SECTIONS = (
+_SECTIONS_SALES = (
     "Write GitHub-flavored markdown with EXACTLY these sections, in order, omitting a section "
     "only if you truly have nothing for it:\n"
     "## TL;DR  — 2-3 bullets: who, why this meeting, the one thing to get right.\n"
@@ -36,26 +36,66 @@ _SECTIONS = (
     "## Risks & watch-outs  — objections, blockers, anything sensitive.\n"
     "Be concrete and concise. Bullets over paragraphs. No preamble, no sign-off."
 )
-
-# Tool-using prompt (agent path): research LIVE across connected sources + web.
-_SYSTEM_AGENT = (
-    "You are a meeting-prep researcher for a {persona}. You produce a tight, skimmable "
-    "preparation brief the rep can read in 60 seconds before a customer call.\n"
-    "Use the tools to research the customer LIVE: their CRM record (HubSpot — deals, tickets, "
-    "owner, lifecycle), recent email threads (Gmail), relevant docs (Drive/Notion), and the "
-    "public web (company news, the attendees' roles). Ground every claim in what you find; "
-    "never invent specifics.\n" + _SECTIONS
+_SECTIONS_TECH = (
+    "Write GitHub-flavored markdown with EXACTLY these sections, in order, omitting a section "
+    "only if you truly have nothing for it:\n"
+    "## TL;DR  — 2-3 bullets: who, why this meeting, the one thing to get right.\n"
+    "## Where we left off  — open threads, decisions or follow-ups from prior meetings, messages, PRs and tickets.\n"
+    "## Relevant work  — related Jira issues, open pull requests, design docs and recent changes to reference.\n"
+    "## Who's in the room  — each attendee: name, likely role, any prior interaction.\n"
+    "## Talking points  — 3-5 specific technical topics or decisions to raise, tied to the work.\n"
+    "## Risks & blockers  — open questions, dependencies, technical risks, anything to unblock.\n"
+    "Be concrete and concise. Bullets over paragraphs. No preamble, no sign-off."
 )
+
+
+def _sections(persona: str) -> str:
+    return _SECTIONS_TECH if persona == "tech" else _SECTIONS_SALES
+
+# Tool-using prompt (agent path): research LIVE across connected sources + web. Persona picks
+# both the framing and the section scaffold — a Tech brief is engineering-shaped, not sales.
+def _system_agent(persona: str) -> str:
+    if persona == "tech":
+        intro = (
+            "You are a meeting-prep researcher for a software engineer. You produce a tight, "
+            "skimmable brief to read in 60 seconds before an engineering / technical meeting.\n"
+            "Use the tools to research LIVE across the connected sources: Jira (open issues, "
+            "sprints), GitHub (PRs, issues, recent changes), docs (Drive/Notion) and messages "
+            "(Slack/Gmail). Ground every claim in what you find; never invent specifics.\n"
+        )
+    else:
+        intro = (
+            "You are a meeting-prep researcher for a sales engineer / AE. You produce a tight, "
+            "skimmable preparation brief the rep can read in 60 seconds before a customer call.\n"
+            "Use the tools to research the customer LIVE: their CRM record (HubSpot — deals, "
+            "tickets, owner, lifecycle), recent email threads (Gmail), relevant docs (Drive/Notion), "
+            "and the public web (company news, the attendees' roles). Ground every claim in what "
+            "you find; never invent specifics.\n"
+        )
+    return intro + _sections(persona)
+
 
 # Compose-only prompt (no tools): synthesize STRICTLY from the context block provided.
-_SYSTEM_COMPOSE = (
-    "You are a meeting-prep assistant for a {persona}. Using ONLY the context provided below "
-    "(prior meeting notes, CRM snapshot, internal docs, attendee list), write a tight, skimmable "
-    "preparation brief the rep can read in 60 seconds.\n"
-    "You have NO tools — do not call any, do not output function calls, and do not invent "
-    "specifics not present in the context. If the context is thin, keep the brief short and note "
-    "what to confirm live.\n" + _SECTIONS
-)
+def _system_compose(persona: str) -> str:
+    if persona == "tech":
+        intro = (
+            "You are a meeting-prep assistant for a software engineer. Using ONLY the context "
+            "provided below (prior meeting notes, related tickets/PRs, internal docs, attendee "
+            "list), write a tight, skimmable brief to read in 60 seconds.\n"
+            "You have NO tools — do not call any, do not output function calls, and do not invent "
+            "specifics not present in the context. If the context is thin, keep the brief short and "
+            "note what to confirm live.\n"
+        )
+    else:
+        intro = (
+            "You are a meeting-prep assistant for a sales engineer / AE. Using ONLY the context "
+            "provided below (prior meeting notes, CRM snapshot, internal docs, attendee list), "
+            "write a tight, skimmable preparation brief the rep can read in 60 seconds.\n"
+            "You have NO tools — do not call any, do not output function calls, and do not invent "
+            "specifics not present in the context. If the context is thin, keep the brief short and "
+            "note what to confirm live.\n"
+        )
+    return intro + _sections(persona)
 
 _TECH_EXTRA = (
     " This is an engineering/technical meeting — favor Jira/GitHub/Drive context (open issues, "
@@ -66,21 +106,24 @@ _TECH_EXTRA = (
 )
 
 
-def _context_block(ctx: dict) -> str:
-    """Render the internal context we gathered into a compact prompt block."""
+def _context_block(ctx: dict, persona: str = "sales") -> str:
+    """Render the internal context we gathered into a compact prompt block (persona-framed)."""
+    is_tech = persona == "tech"
     parts = [
         f"Event: {ctx.get('title', '')}",
         f"When: {ctx.get('start', '')}",
-        f"Customer: {ctx.get('customer') or 'unknown'}",
-        f"External attendees: {', '.join(ctx.get('external_attendees') or []) or 'none listed'}",
-        f"Organizer: {ctx.get('organizer', '')}",
     ]
+    if not is_tech:  # "Customer" is a sales framing; a tech sync often has no external customer
+        parts.append(f"Customer: {ctx.get('customer') or 'unknown'}")
+    parts.append(f"Attendees: {', '.join(ctx.get('external_attendees') or []) or 'none listed'}")
+    parts.append(f"Organizer: {ctx.get('organizer', '')}")
     crm = ctx.get("crm") or {}
-    if crm.get("company"):
+    if not is_tech and crm.get("company"):  # CRM is sales-only context
         parts.append("CRM (HubSpot) snapshot:\n" + json.dumps(crm)[:1500])
     history = ctx.get("history") or []
     if history:
-        parts.append("Prior meetings with this customer:\n" + json.dumps(history)[:2000])
+        label = "Prior related meetings" if is_tech else "Prior meetings with this customer"
+        parts.append(f"{label}:\n" + json.dumps(history)[:2000])
     docs = ctx.get("docs") or []
     if docs:
         parts.append("Relevant internal docs:\n" + json.dumps(docs)[:1000])
@@ -218,7 +261,7 @@ async def _agent_brief(
         allowed.append(f"mcp__{name}")
         attached.add(name)
 
-    system = _SYSTEM_AGENT.format(persona="sales engineer / AE" if persona != "tech" else "software engineer")
+    system = _system_agent(persona)
     if persona == "tech":
         system += _TECH_EXTRA
 
@@ -232,8 +275,9 @@ async def _agent_brief(
         cwd=_SCRATCH,
     )
     prompt = (
-        "Prepare me for this upcoming meeting. Research the customer using my connected tools "
-        "and the web, then write the brief.\n\n" + _context_block(ctx)
+        "Prepare me for this upcoming meeting. Research across my connected tools"
+        + (" and the web" if persona != "tech" else "")
+        + ", then write the brief.\n\n" + _context_block(ctx, persona)
     )
 
     parts: list[str] = []
@@ -290,19 +334,19 @@ async def _agent_brief(
 
 async def _llm_brief(ctx: dict, persona: str) -> dict | None:
     """No agent/connected tools — compose a brief STRICTLY from the internal context we have."""
-    system = _SYSTEM_COMPOSE.format(persona="sales engineer / AE" if persona != "tech" else "software engineer")
-    if persona == "tech":
-        system += _TECH_EXTRA
-    out = await llm_complete(system, _context_block(ctx), max_tokens=1200, temperature=0.3, timeout=60)
+    system = _system_compose(persona)  # no _TECH_EXTRA here — it's Jira tool mechanics, useless without tools
+    out = await llm_complete(system, _context_block(ctx, persona), max_tokens=1200, temperature=0.3, timeout=60)
     if not out:
         return None
-    return {"markdown": out.strip(), "sources": [{"label": "Prior meetings & CRM", "type": "document", "detail": "internal", "url": ""}], "engine": "llm"}
+    label = "Prior meetings & internal context" if persona == "tech" else "Prior meetings & CRM"
+    return {"markdown": out.strip(), "sources": [{"label": label, "type": "document", "detail": "internal", "url": ""}], "engine": "llm"}
 
 
-def _offline_brief(ctx: dict) -> dict:
+def _offline_brief(ctx: dict, persona: str = "sales") -> dict:
     """Last resort — a deterministic brief from internal context (no LLM available)."""
+    is_tech = persona == "tech"
     lines = [f"## {ctx.get('title') or 'Upcoming meeting'}", ""]
-    if ctx.get("customer"):
+    if not is_tech and ctx.get("customer"):
         lines.append(f"**Customer:** {ctx['customer']}")
     ext = ctx.get("external_attendees") or []
     if ext:
@@ -315,10 +359,11 @@ def _offline_brief(ctx: dict) -> dict:
             for a in (h.get("open_actions") or [])[:3]:
                 lines.append(f"  - open: {a}")
     crm = (ctx.get("crm") or {}).get("company") or {}
-    if crm:
+    if not is_tech and crm:  # CRM/account snapshot is a sales section
         lines += ["", "## Account snapshot", f"- {json.dumps(crm)[:300]}"]
     if len(lines) <= 2:
-        lines.append("_No prior context found. Connect HubSpot, Notion, Drive or Gmail for a researched brief._")
+        connect = "Jira, GitHub, Notion, Drive or Slack" if is_tech else "HubSpot, Notion, Drive or Gmail"
+        lines.append(f"_No prior context found. Connect {connect} for a researched brief._")
     return {"markdown": "\n".join(lines), "sources": [], "engine": "offline"}
 
 
@@ -345,4 +390,4 @@ async def generate_prep(
             return llm
     except Exception as exc:  # LLM/network failure — fall back to deterministic
         log.warning("prep LLM compose errored, using offline brief: %s", exc)
-    return _offline_brief(ctx)
+    return _offline_brief(ctx, persona)

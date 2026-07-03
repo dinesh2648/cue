@@ -31,6 +31,16 @@ def _persona(user: User) -> str:
     return "tech" if (user.team or "").lower() == "tech" else "sales"
 
 
+# Bump when the prep scaffold/prompt changes so already-cached briefs auto-regenerate with the
+# new structure (no migration). The clean _persona above still drives generation; this only
+# stamps the cache key. v2 = persona-aware section scaffold (engineering vs sales).
+_PREP_VERSION = "2"
+
+
+def _persona_key(user: User) -> str:
+    return f"{_persona(user)}.v{_PREP_VERSION}"
+
+
 def _customer_guess(external: list[str]) -> str:
     """A human-ish customer label from the most common external attendee domain."""
     if not external:
@@ -106,7 +116,7 @@ def _fresh(row: MeetingPrep | None) -> bool:
 def _usable(row: MeetingPrep | None, user: User) -> bool:
     """A cached prep is usable only if it's fresh AND was generated for the user's current
     persona — so switching team (sales↔tech) invalidates stale briefs automatically."""
-    return _fresh(row) and (getattr(row, "persona", "") or "") == _persona(user)
+    return _fresh(row) and (getattr(row, "persona", "") or "") == _persona_key(user)
 
 
 async def build_prep(db: Session, user: User, event: dict, *, force: bool = False) -> MeetingPrep:
@@ -182,7 +192,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         event_title=(event.get("title") or "")[:255],
         event_start=(event.get("start") or "")[:64],
         customer=customer[:255],
-        persona=_persona(user),
+        persona=_persona_key(user),
         markdown=result.get("markdown", ""),
         sources=result.get("sources", []),
         engine=result.get("engine", ""),

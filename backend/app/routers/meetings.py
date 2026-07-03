@@ -367,9 +367,9 @@ def meeting_prep(meeting_id: str, user: User = Depends(get_current_user), db: Se
         return {"found": False}
     # Show the meeting owner's brief for their CURRENT persona — never a stale sales brief
     # after they've switched to Tech (and vice-versa).
-    from ..prep_ops import _persona
+    from ..prep_ops import _persona_key
     owner = db.get(User, meeting.owner_user_id) if meeting.owner_user_id else None
-    want_persona = _persona(owner) if owner else None
+    want_persona = _persona_key(owner) if owner else None
     row = db.scalar(
         select(MeetingPrep)
         .where(
