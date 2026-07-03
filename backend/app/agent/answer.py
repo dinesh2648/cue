@@ -86,6 +86,14 @@ def _compose_offline(intent_type: str, facts: list[dict], hits: list[dict]) -> s
     return "Let me pull the exact details and get right back to you on that."
 
 
+def _compose_tech(hits: list[dict]) -> str:
+    """Persona-neutral instant answer for the Tech pack — grounded in docs, no sales framing."""
+    top = hits[0]["snippet"] if hits else ""
+    if top:
+        return f"From the docs: {top}"
+    return "Let me pull the exact details from our docs and tickets and confirm."
+
+
 def _confidence(intent_conf: float, hits: list[dict], facts: list[dict]) -> float:
     top_score = hits[0]["score"] if hits else 0.0
     retrieval = min(top_score / 0.35, 1.0)  # normalise typical TF-IDF range
@@ -146,18 +154,27 @@ async def answer_node(state: dict) -> dict:
             "grounded": False,
         }
 
-    answer = _compose_offline(intent_type, facts, hits)
+    persona = state.get("persona", "sales")
+    answer = _compose_tech(hits) if persona == "tech" else _compose_offline(intent_type, facts, hits)
 
-    # Optional LLM polish — grounded, never authoritative over evidence/score.
+    # Optional LLM polish — grounded, never authoritative over evidence/score. Persona-framed
+    # so a Tech user doesn't get a sales-rep voice (and vice versa).
     if evidence:
+        polish_system = (
+            "You are a technical copilot assisting an engineer live in a working session or technical "
+            "meeting. Rewrite the draft answer to be concise (2-3 sentences), precise, and ready to say "
+            "out loud. Use ONLY the supplied facts — never invent specifics. Return plain text only."
+            if persona == "tech"
+            else
+            "You are a virtual Sales Engineer assisting a rep live on a customer call. "
+            "Rewrite the draft answer to be concise (2-3 sentences), warm, and ready to say "
+            "out loud. Use ONLY the supplied facts — never invent specifics. Return plain text only."
+        )
+        who = "Someone" if persona == "tech" else "Customer"
         polished = await llm_complete(
-            system=(
-                "You are a virtual Sales Engineer assisting a rep live on a customer call. "
-                "Rewrite the draft answer to be concise (2-3 sentences), warm, and ready to say "
-                "out loud. Use ONLY the supplied facts — never invent specifics. Return plain text only."
-            ),
+            system=polish_system,
             user=(
-                f"Customer asked: {state['query_text']}\n\n"
+                f"{who} asked: {state['query_text']}\n\n"
                 f"Facts:\n- " + "\n- ".join(evidence) + f"\n\nDraft answer: {answer}"
             ),
             max_tokens=220,

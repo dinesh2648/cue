@@ -35,9 +35,12 @@ class SalesPack(CopilotPack):
         return claude_sdk.available() or (claude_agent.available() and bool(servers))
 
     async def fast_answer(self, *, db, meeting, text, intent, doc_catalog) -> dict:
-        crm_context = hubspot.company_context(db, meeting.crm_company_id)
+        # Persona is the pack itself (TechPack inherits this method → self.manifest.key == "tech").
+        # Tech skips the sales CRM entirely and gets a tech-framed instant answer.
+        persona = "tech" if self.manifest.key == "tech" else "sales"
+        crm_context = {} if persona == "tech" else hubspot.company_context(db, meeting.crm_company_id)
         result = await pipeline.ainvoke(
-            {"query_text": text, "crm_context": crm_context, "doc_catalog": doc_catalog}
+            {"query_text": text, "crm_context": crm_context, "doc_catalog": doc_catalog, "persona": persona}
         )
         return {
             "answer": result.get("answer", ""),
