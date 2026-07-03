@@ -153,6 +153,7 @@ def metrics() -> dict:
         p95 = latencies[int(0.95 * (n - 1))] if n else 0
         sla_ms = settings.response_sla_seconds * 1000
         within = sum(1 for x in latencies if x <= sla_ms)
+        grounded = db.scalar(select(func.count()).select_from(Suggestion).where(Suggestion.grounded.is_(True))) or 0
         return {
             "meetings": db.scalar(select(func.count()).select_from(Meeting)) or 0,
             "suggestions": n,
@@ -160,6 +161,7 @@ def metrics() -> dict:
             "p95_latency_ms": p95,
             "response_sla_ms": sla_ms,
             "sla_compliance_pct": round(100 * within / n, 1) if n else 100.0,
+            "grounded_pct": round(100 * grounded / n, 1) if n else 0.0,
         }
     finally:
         db.close()

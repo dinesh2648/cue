@@ -184,6 +184,7 @@ export interface Metrics {
   p95_latency_ms: number;
   response_sla_ms: number;
   sla_compliance_pct: number;
+  grounded_pct: number;
 }
 
 export interface ProposedAction {

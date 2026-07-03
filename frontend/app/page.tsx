@@ -8,11 +8,11 @@ import type { Meeting, Metrics, UpcomingMeetings, CalendarEvent } from "@/lib/ty
 import MeetingPrepPanel from "@/components/MeetingPrepPanel";
 
 const PIPELINE = [
-  { icon: "🎧", title: "Listen", sub: "Live Google Meet transcript" },
-  { icon: "🎯", title: "Detect intent", sub: "Pricing · contract · security · support…" },
-  { icon: "🔎", title: "Retrieve", sub: "HubSpot CRM + enterprise docs" },
+  { icon: "🎧", title: "Listen", sub: "Live meeting transcript" },
+  { icon: "🎯", title: "Detect intent", sub: "The real question — sales or technical" },
+  { icon: "🔎", title: "Retrieve", sub: "CRM · docs · Jira · GitHub · Slack" },
   { icon: "💡", title: "Suggest", sub: "Grounded answer · sources · confidence" },
-  { icon: "🔄", title: "Automate", sub: "CRM notes, tasks & follow-up email" },
+  { icon: "🔄", title: "Automate", sub: "Notes, tickets, tasks & follow-ups" },
 ];
 
 export default function Home() {
@@ -104,16 +104,16 @@ export default function Home() {
       <section className="hero">
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--accent)", marginBottom: 12 }}>
-            Sales pack
+            Sales · Engineering · and more
           </div>
           <h1>
-            Your real-time <span className="grad">AI Sales Engineer</span>, on every call.
+            Your real-time <span className="grad">AI copilot</span>, in every meeting.
           </h1>
           <p>
-            The copilot joins your customer meeting, follows the conversation, and the moment a
-            question comes up — about the contract, security, tickets, pricing — it surfaces a
-            grounded answer from your CRM and enterprise docs, with sources and a confidence score.
-            Then it writes the recap back to your CRM for you.
+            Cue joins your meeting — a sales call or an engineering sync — follows the conversation,
+            and the moment a question comes up it surfaces a grounded answer from <b>all</b> your
+            connected tools: CRM, docs, Jira, GitHub, Slack, email and more — with sources and a
+            confidence score. Then it writes the recap and does the follow-up for you.
           </p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button className="btn primary" onClick={startDemo} disabled={starting}>
@@ -143,24 +143,37 @@ export default function Home() {
           )}
 
           {metrics && (
-            <div className="meta-strip">
-              <div className="metric">
-                <div className="v good">&lt; {Math.round(metrics.response_sla_ms / 1000)}s</div>
-                <div className="l">Response SLA</div>
+            <>
+              <div className="meta-strip">
+                <div className="metric">
+                  <div className="v good">{(metrics.avg_latency_ms / 1000).toFixed(1)}s</div>
+                  <div className="l">Avg response</div>
+                </div>
+                <div className="metric">
+                  <div className="v">{(metrics.p95_latency_ms / 1000).toFixed(1)}s</div>
+                  <div className="l">P95 response</div>
+                </div>
+                <div className="metric">
+                  <div className="v good">{metrics.sla_compliance_pct}%</div>
+                  <div className="l">Within {Math.round(metrics.response_sla_ms / 1000)}s SLA</div>
+                </div>
+                <div className="metric">
+                  <div className="v good">{metrics.grounded_pct}%</div>
+                  <div className="l">Grounded in sources</div>
+                </div>
+                <div className="metric">
+                  <div className="v">{metrics.suggestions}</div>
+                  <div className="l">Answers surfaced</div>
+                </div>
+                <div className="metric">
+                  <div className="v">{metrics.meetings}</div>
+                  <div className="l">Meetings run</div>
+                </div>
               </div>
-              <div className="metric">
-                <div className="v">{metrics.suggestions}</div>
-                <div className="l">Answers surfaced</div>
+              <div style={{ fontSize: 11.5, color: "var(--faint)", marginTop: 8 }}>
+                Live metrics from your workspace · updates as you run meetings
               </div>
-              <div className="metric">
-                <div className="v good">{metrics.sla_compliance_pct}%</div>
-                <div className="l">Within SLA</div>
-              </div>
-              <div className="metric">
-                <div className="v">{metrics.meetings}</div>
-                <div className="l">Meetings</div>
-              </div>
-            </div>
+            </>
           )}
         </div>
 
@@ -269,7 +282,7 @@ export default function Home() {
                   </div>
                   <button
                     className={`btn sm ${prepOpen[ev.id] ? "primary" : ""}`}
-                    title="Preparation notes — researched from your CRM, docs, emails & prior meetings"
+                    title="Preparation notes — researched from your connected tools, docs, emails & prior meetings"
                     onClick={() => setPrepOpen((o) => ({ ...o, [ev.id]: !o[ev.id] }))}
                   >
                     {prepOpen[ev.id] ? "▾ Prep notes" : "📋 Prep notes"}
