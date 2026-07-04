@@ -332,6 +332,67 @@ async def _agent_brief(
     return {"markdown": markdown, "sources": sources, "engine": "claude+mcp"}
 
 
+_MCP_BETA = "mcp-client-2025-04-04"
+
+
+async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | None:
+    """Research the brief LIVE via Anthropic's native MCP connector over the user's remote MCP
+    servers (GitHub, Jira, HubSpot, Notion-DCR). This is the path that WORKS in Docker, where the
+    Claude Agent SDK (used by _agent_brief) isn't installed. Returns None to fall back to compose.
+
+    Note: in-process sources (Gmail/Drive/Slack, Notion-PAT) are not reachable here — they need the
+    agent-SDK tool loop — so this researches whatever the user has as a hosted MCP server.
+    """
+    from ..config import settings
+
+    remote = [s for s in servers if s.get("url") and s.get("token") and not s.get("inprocess")]
+    if not settings.anthropic_api_key or not remote:
+        return None
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError:  # pragma: no cover
+        return None
+
+    system = _system_agent(persona) + (_TECH_EXTRA if persona == "tech" else "")
+    connected = ", ".join(sorted({s.get("name", "") for s in remote if s.get("name")}))
+    user_msg = (
+        "Prepare me for this upcoming meeting. Research LIVE across my connected tools "
+        f"({connected}) — pull the open issues, PRs, tickets and recent activity that are actually "
+        "relevant to this meeting and the attendees — then write the brief. Ground every claim in "
+        "what the tools return; if a tool returns nothing relevant, say so rather than speculating.\n\n"
+        + _context_block(ctx, persona)
+    )
+    payload = [{"type": "url", "url": s["url"], "name": s["name"], "authorization_token": s["token"]} for s in remote]
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    try:
+        resp = await client.beta.messages.create(
+            model=settings.anthropic_model, max_tokens=1500, system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            mcp_servers=payload, betas=[_MCP_BETA],
+        )
+    except Exception as exc:
+        log.warning("prep mcp research failed: %s", exc)
+        return None
+
+    parts, used = [], set()
+    for block in resp.content:
+        bt = getattr(block, "type", "")
+        if bt == "text":
+            parts.append(block.text)
+        elif bt == "mcp_tool_use":
+            parts.clear()  # drop pre-tool narration; keep only the final written brief
+            nm = getattr(block, "server_name", "") or getattr(block, "name", "")
+            if nm:
+                used.add(nm.split("__")[0] if "__" in nm else nm)
+    markdown = "\n".join(p.rstrip() for p in parts if p.strip()).strip()
+    if "## " in markdown:
+        markdown = markdown[markdown.index("## "):]
+    if not markdown:
+        return None
+    sources = [{"label": f"{u.replace('_', ' ').title()} (your account)", "type": "connector", "detail": "live · your access", "url": ""} for u in sorted(used)]
+    return {"markdown": markdown, "sources": sources or [{"label": "Connected tools (live)", "type": "connector", "detail": "live", "url": ""}], "engine": "claude+mcp"}
+
+
 async def _llm_brief(ctx: dict, persona: str) -> dict | None:
     """No agent/connected tools — compose a brief STRICTLY from the internal context we have."""
     system = _system_compose(persona)  # no _TECH_EXTRA here — it's Jira tool mechanics, useless without tools
@@ -384,6 +445,14 @@ async def generate_prep(
                 return agent
         except Exception as exc:  # SDK/subprocess/tool failure — fall back to compose
             log.warning("prep agent path errored, falling back to compose: %s", exc)
+    # Live research via Anthropic's MCP connector — the path that works in Docker (no agent-SDK).
+    if servers:
+        try:
+            mcp = await _mcp_brief(ctx, persona, servers)
+            if mcp:
+                return mcp
+        except Exception as exc:
+            log.warning("prep mcp path errored, falling back to compose: %s", exc)
     try:
         llm = await _llm_brief(ctx, persona)
         if llm:

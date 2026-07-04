@@ -34,7 +34,7 @@ def _persona(user: User) -> str:
 # Bump when the prep scaffold/prompt changes so already-cached briefs auto-regenerate with the
 # new structure (no migration). The clean _persona above still drives generation; this only
 # stamps the cache key. v2 = persona-aware section scaffold (engineering vs sales).
-_PREP_VERSION = "2"
+_PREP_VERSION = "3"  # v3: persona-gated docs (no sales corpus in tech prep) + live MCP research
 
 
 def _persona_key(user: User) -> str:
@@ -134,15 +134,21 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     customer = _customer_guess(external) or (event.get("title") or "")
     history, crm_company_id = _gather_history(db, user, customer, {a.lower() for a in external}, event)
 
+    persona = _persona(user)
     crm = hubspot.company_context(db, crm_company_id) if crm_company_id else {}
 
-    try:
-        docs = [
-            {"title": h.title, "snippet": h.snippet}
-            for h in await index.search(f"{customer} {event.get('title', '')}".strip(), k=4)
-        ]
-    except Exception:  # pragma: no cover - retrieval best-effort
-        docs = []
+    # The KnowledgeDoc corpus is sales/CRM-oriented (contracts, pricing, proposals). Pull it only
+    # for sales prep, and only when there's an external customer to match against — otherwise it
+    # injects irrelevant sales docs into an internal/technical brief (e.g. a dev standup).
+    docs = []
+    if persona != "tech" and crm_company_id:
+        try:
+            docs = [
+                {"title": h.title, "snippet": h.snippet}
+                for h in await index.search(f"{customer} {event.get('title', '')}".strip(), k=4)
+            ]
+        except Exception:  # pragma: no cover - retrieval best-effort
+            docs = []
 
     servers = await active_mcp_servers(db, user.id)
 
