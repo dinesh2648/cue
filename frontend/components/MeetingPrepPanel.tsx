@@ -23,6 +23,10 @@ function renderInline(text: string, keyBase: string) {
   return nodes;
 }
 
+const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+const isRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
+const isSep = (l: string) => /^\s*\|?[\s:|-]+\|?\s*$/.test(l) && l.includes("-");
+
 export function Markdown({ md }: { md: string }) {
   const blocks: React.ReactNode[] = [];
   const lines = md.split("\n");
@@ -39,11 +43,33 @@ export function Markdown({ md }: { md: string }) {
       bullets = [];
     }
   };
-  for (const raw of lines) {
-    const line = raw.trimEnd();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd();
+    // GFM table: header row + separator row, then body rows
+    if (isRow(line) && i + 1 < lines.length && isSep(lines[i + 1])) {
+      flush();
+      const header = cells(line);
+      const body: string[][] = [];
+      i += 2;
+      while (i < lines.length && isRow(lines[i])) { body.push(cells(lines[i])); i++; }
+      i--;
+      const kk = key++;
+      blocks.push(
+        <div key={`tw${kk}`} className="prep-tablewrap">
+          <table className="prep-table">
+            <thead><tr>{header.map((h, j) => <th key={j}>{renderInline(h, `th${kk}-${j}`)}</th>)}</tr></thead>
+            <tbody>{body.map((r, ri) => (
+              <tr key={ri}>{header.map((_, ci) => <td key={ci}>{renderInline(r[ci] ?? "", `td${kk}-${ri}-${ci}`)}</td>)}</tr>
+            ))}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
     if (/^###\s+/.test(line)) { flush(); blocks.push(<h4 key={`h${key++}`} className="prep-h">{renderInline(line.replace(/^###\s+/, ""), `h${key}`)}</h4>); }
     else if (/^##\s+/.test(line)) { flush(); blocks.push(<h3 key={`h${key++}`} className="prep-h">{renderInline(line.replace(/^##\s+/, ""), `h${key}`)}</h3>); }
     else if (/^#\s+/.test(line)) { flush(); blocks.push(<h3 key={`h${key++}`} className="prep-h">{renderInline(line.replace(/^#\s+/, ""), `h${key}`)}</h3>); }
+    else if (/^(---+|\*\*\*+|___+)$/.test(line.trim())) { flush(); /* horizontal rule — skip */ }
     else if (/^\s*[-*]\s+/.test(line)) { bullets.push(line.replace(/^\s*[-*]\s+/, "")); }
     else if (line.trim() === "") { flush(); }
     else { flush(); blocks.push(<p key={`p${key++}`} className="prep-p">{renderInline(line, `p${key}`)}</p>); }

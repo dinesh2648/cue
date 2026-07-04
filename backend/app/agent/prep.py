@@ -366,7 +366,7 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     try:
         resp = await client.beta.messages.create(
-            model=settings.anthropic_model, max_tokens=1500, system=system,
+            model=settings.anthropic_model, max_tokens=4000, system=system,
             messages=[{"role": "user", "content": user_msg}],
             mcp_servers=payload, betas=[_MCP_BETA],
         )
