@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 
 from .agent import prep
 from .connectors.manager import active_mcp_servers, get_access_token
+from .integrations import gmail as gmail_api
+from .integrations import google_drive as drive_api
 from .integrations import hubspot
+from .integrations import slack as slack_api
 from .knowledge.store import index
 from .models import Meeting, MeetingPrep, MeetingSummary, User
 
@@ -34,7 +37,7 @@ def _persona(user: User) -> str:
 # Bump when the prep scaffold/prompt changes so already-cached briefs auto-regenerate with the
 # new structure (no migration). The clean _persona above still drives generation; this only
 # stamps the cache key. v2 = persona-aware section scaffold (engineering vs sales).
-_PREP_VERSION = "3"  # v3: persona-gated docs (no sales corpus in tech prep) + live MCP research
+_PREP_VERSION = "4"  # v4: pre-fetch Gmail/Drive/Slack into context (+ v3 persona docs + MCP research)
 
 
 def _persona_key(user: User) -> str:
@@ -168,6 +171,26 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     gmail_token = await _live_token("gmail")
     slack_token = await _live_token("slack")  # read in-process via the Slack Web API
 
+    # Pre-fetch recent Gmail / Drive / Slack matches for the attendees + topic. These sources are
+    # read in-process (not hosted MCP), so the live-research path (_mcp_brief) can't reach them —
+    # pulling them into the context here is how they get considered, incl. in Docker.
+    q = " ".join([customer or event.get("title", ""), *external]).strip()[:200]
+
+    async def _safe(coro):
+        try:
+            return await coro
+        except Exception:  # pragma: no cover - best-effort per source
+            return []
+
+    comms: list[dict] = []
+    if q:
+        if gmail_token:
+            comms += [{"source": "gmail", **m} for m in await _safe(gmail_api.search(gmail_token, q, k=5))]
+        if drive_token:
+            comms += [{"source": "drive", **d} for d in await _safe(drive_api.search(drive_token, q, k=4))]
+        if slack_token:
+            comms += [{"source": "slack", **sm} for sm in await _safe(slack_api.search(slack_token, q, k=5))]
+
     ctx = {
         "title": event.get("title", ""),
         "start": event.get("start", ""),
@@ -177,6 +200,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         "crm": crm,
         "history": history,
         "docs": docs,
+        "comms": comms,
     }
     result = await prep.generate_prep(
         ctx, persona=_persona(user), servers=servers,

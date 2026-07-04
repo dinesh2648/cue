@@ -127,6 +127,13 @@ def _context_block(ctx: dict, persona: str = "sales") -> str:
     docs = ctx.get("docs") or []
     if docs:
         parts.append("Relevant internal docs:\n" + json.dumps(docs)[:1000])
+    comms = ctx.get("comms") or []
+    if comms:
+        parts.append(
+            "Recent emails, files & messages from your connected accounts (Gmail / Drive / Slack) "
+            "matching the attendees and topic — use what's relevant, ignore the rest:\n"
+            + json.dumps(comms)[:2500]
+        )
     return "\n\n".join(parts)
 
 
@@ -332,6 +339,18 @@ async def _agent_brief(
     return {"markdown": markdown, "sources": sources, "engine": "claude+mcp"}
 
 
+_COMM_LABEL = {"gmail": "Gmail", "drive": "Google Drive", "slack": "Slack"}
+
+
+def _comm_sources(ctx: dict) -> list[dict]:
+    """Attribute the pre-fetched in-process comms (Gmail/Drive/Slack) present in the context."""
+    seen = {c.get("source") for c in (ctx.get("comms") or []) if c.get("source")}
+    return [
+        {"label": f"{_COMM_LABEL.get(s, s.title())} (your account)", "type": "connector", "detail": "your access", "url": ""}
+        for s in sorted(seen)
+    ]
+
+
 _MCP_BETA = "mcp-client-2025-04-04"
 
 
@@ -390,6 +409,7 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
     if not markdown:
         return None
     sources = [{"label": f"{u.replace('_', ' ').title()} (your account)", "type": "connector", "detail": "live · your access", "url": ""} for u in sorted(used)]
+    sources += _comm_sources(ctx)
     return {"markdown": markdown, "sources": sources or [{"label": "Connected tools (live)", "type": "connector", "detail": "live", "url": ""}], "engine": "claude+mcp"}
 
 
@@ -400,7 +420,7 @@ async def _llm_brief(ctx: dict, persona: str) -> dict | None:
     if not out:
         return None
     label = "Prior meetings & internal context" if persona == "tech" else "Prior meetings & CRM"
-    return {"markdown": out.strip(), "sources": [{"label": label, "type": "document", "detail": "internal", "url": ""}], "engine": "llm"}
+    return {"markdown": out.strip(), "sources": [{"label": label, "type": "document", "detail": "internal", "url": ""}, *_comm_sources(ctx)], "engine": "llm"}
 
 
 def _offline_brief(ctx: dict, persona: str = "sales") -> dict:
