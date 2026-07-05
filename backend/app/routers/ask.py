@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..connectors import live_sources
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import get_db
 from ..models import KnowledgeDoc, User
@@ -84,6 +85,11 @@ async def ask(
             log.warning("ask deep_answer failed: %s", exc)
 
     best = deep or fast
+    # "Searched" = remote-MCP servers (agent tools) + the in-process sources gather_comms queries
+    # (Gmail/Drive/Slack/Notion-PAT/Calendar) — the latter aren't in `servers`, so add them here.
+    searched = [s.get("name") for s in servers] + (
+        await live_sources.available_inprocess(db, user.id) if deep else []
+    )
     return {
         "answer": best.get("answer") or "I couldn't find an answer in your connected sources.",
         "evidence": best.get("evidence", []),
@@ -93,7 +99,7 @@ async def ask(
         "grounded": best.get("grounded", False),
         "persona": persona,
         "intent": intent.intent_type,
-        "connected": [s.get("name") for s in servers],  # sources available to the agent
+        "connected": searched,  # every source searched: remote-MCP servers + in-process sources
         "used": [s.get("label") for s in best.get("sources", [])],  # sources it actually cited
         "deep_ran": bool(deep),
         "latency_ms": int((time.perf_counter() - t0) * 1000),

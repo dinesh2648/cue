@@ -175,6 +175,28 @@ async def gather_comms(
     return comms
 
 
+async def available_inprocess(db: Session, user_id: str | None) -> list[str]:
+    """Display names of the in-process sources gather_comms will search for this user (Gmail, Drive,
+    Slack, Notion-PAT, Calendar) — so the UI can report them as 'searched' alongside the remote-MCP
+    servers, which is the only place they'd otherwise appear."""
+    if not user_id:
+        return []
+    tk = await inprocess_read_tokens(db, user_id)
+    out: list[str] = []
+    if tk.get("gmail"):
+        out.append("Gmail")
+    if tk.get("google_drive"):
+        out.append("Google Drive")
+    if tk.get("slack"):
+        out.append("Slack")
+    nconn = get_connection(db, user_id, "notion")
+    if nconn and not (nconn.oauth_meta or {}).get("token_endpoint") and await _provider_token(db, user_id, "notion"):
+        out.append("Notion")  # PAT connection (DCR Notion is already a remote MCP server)
+    if await _provider_token(db, user_id, "google_calendar"):
+        out.append("Google Calendar")
+    return out
+
+
 _LABEL = {"gmail": "Email", "drive": "Drive", "slack": "Slack", "notion": "Notion", "calendar": "Calendar"}
 
 
