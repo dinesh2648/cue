@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { MeetingPrep } from "@/lib/types";
+import { usePrepWatcher } from "@/components/PrepWatcher";
 
 // Minimal, safe markdown → React for the prep brief: ## / ### headings, - / * bullets,
 // **bold**, [text](url), bare URLs, and paragraphs. No raw HTML, no new deps.
@@ -93,6 +94,7 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
   const [hint, setHint] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(true);
+  const watcher = usePrepWatcher();
 
   // Generation runs in the background server-side; poll until it's ready.
   const poll = async (refresh = false) => {
@@ -109,6 +111,7 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
       } else {
         setGenerating(false);
         setPrep(r as MeetingPrep);
+        watcher.clear(eventId); // panel showed it — no need for a global toast
       }
     } catch (e) {
       if (!alive.current) return;
@@ -121,6 +124,7 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
     if (timer.current) clearTimeout(timer.current);
     setGenerating(true);
     if (refresh) setPrep(null);
+    watcher.watch(eventId); // keep watching app-wide so a toast fires even if we navigate away
     poll(refresh);
   };
 

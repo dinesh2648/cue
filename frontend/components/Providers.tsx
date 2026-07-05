@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, setTokenGetter } from "@/lib/api";
 import { BRAND, TAGLINE } from "@/lib/brand";
+import PrepWatcherProvider from "@/components/PrepWatcher";
 
 const TOKEN_KEY = "cue_session_token";
 
@@ -139,9 +140,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   }
   // dev mode (no user chip) or authed (with user chip)
   return (
-    <>
+    <PrepWatcherProvider>
       <Header user={user} onSignOut={signOut} />
       {children}
-    </>
+    </PrepWatcherProvider>
   );
 }
