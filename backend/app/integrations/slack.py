@@ -40,6 +40,7 @@ async def search(token: str, query: str, k: int = 8) -> list[dict]:
             "text": m.get("text", ""),
             "user": (m.get("username") or m.get("user") or ""),
             "channel": (m.get("channel") or {}).get("name", ""),
+            "channel_id": (m.get("channel") or {}).get("id", ""),
             "ts": m.get("ts", ""),
             "permalink": m.get("permalink", ""),
         }

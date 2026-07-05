@@ -37,7 +37,7 @@ def _persona(user: User) -> str:
 # Bump when the prep scaffold/prompt changes so already-cached briefs auto-regenerate with the
 # new structure (no migration). The clean _persona above still drives generation; this only
 # stamps the cache key. v2 = persona-aware section scaffold (engineering vs sales).
-_PREP_VERSION = "7"  # v7: read Drive file content for top matches (+ v6 Gmail bodies + calendar)
+_PREP_VERSION = "8"  # v8: Slack channel history for top match (+ v7 Drive content + Gmail bodies)
 
 
 def _persona_key(user: User) -> str:
@@ -203,7 +203,16 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
                         item["body"] = body
                 comms.append(item)
         if slack_token:
-            comms += [{"source": "slack", **sm} for sm in await _safe(slack_api.search(slack_token, q, k=5))]
+            hits = await _safe(slack_api.search(slack_token, q, k=5))
+            comms += [{"source": "slack", **sm} for sm in hits]
+            # deepen: pull recent context from the top matched channel (not just isolated hits)
+            top_ch = next((h.get("channel_id") for h in hits if h.get("channel_id")), None)
+            if top_ch:
+                hist = await _safe(slack_api.channel_history(slack_token, top_ch, limit=12))
+                texts = [m.get("text", "") for m in hist if m.get("text")][:12]
+                if texts:
+                    ch_name = next((h.get("channel") for h in hits if h.get("channel_id") == top_ch), "")
+                    comms.append({"source": "slack", "channel": ch_name, "recent_messages": texts})
 
     ctx = {
         "title": event.get("title", ""),
