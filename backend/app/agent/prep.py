@@ -130,9 +130,10 @@ def _context_block(ctx: dict, persona: str = "sales") -> str:
     comms = ctx.get("comms") or []
     if comms:
         parts.append(
-            "Recent emails, files & messages from your connected accounts (Gmail / Drive / Slack) "
-            "matching the attendees and topic — use what's relevant, ignore the rest:\n"
-            + json.dumps(comms)[:2500]
+            "Recent emails (with bodies), files & messages from your connected accounts "
+            "(Gmail / Drive / Slack) matching the attendees and topic — use what's relevant, "
+            "ignore the rest:\n"
+            + json.dumps(comms)[:5000]
         )
     return "\n\n".join(parts)
 

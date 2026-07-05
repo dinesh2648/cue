@@ -37,7 +37,7 @@ def _persona(user: User) -> str:
 # Bump when the prep scaffold/prompt changes so already-cached briefs auto-regenerate with the
 # new structure (no migration). The clean _persona above still drives generation; this only
 # stamps the cache key. v2 = persona-aware section scaffold (engineering vs sales).
-_PREP_VERSION = "5"  # v5: credit Google Calendar source (+ v4 Gmail/Drive/Slack pre-fetch)
+_PREP_VERSION = "6"  # v6: read Gmail bodies for top matches (+ v5 calendar + Gmail/Drive/Slack)
 
 
 def _persona_key(user: User) -> str:
@@ -185,7 +185,14 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     comms: list[dict] = []
     if q:
         if gmail_token:
-            comms += [{"source": "gmail", **m} for m in await _safe(gmail_api.search(gmail_token, q, k=5))]
+            hits = await _safe(gmail_api.search(gmail_token, q, k=6))
+            for i, m in enumerate(hits):
+                item = {"source": "gmail", **m}
+                if i < 3 and m.get("id"):  # read the actual email body (not just the snippet) for the top matches
+                    body = await _safe(gmail_api.read_message(gmail_token, m["id"], max_chars=1200))
+                    if isinstance(body, str) and body.strip():
+                        item["body"] = body
+                comms.append(item)
         if drive_token:
             comms += [{"source": "drive", **d} for d in await _safe(drive_api.search(drive_token, q, k=4))]
         if slack_token:
