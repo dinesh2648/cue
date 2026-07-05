@@ -177,6 +177,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         db, user.id, q,
         tokens={"gmail": gmail_token, "google_drive": drive_token, "slack": slack_token},
         read_bodies=True,
+        calendar=False,  # prep is built around THIS event already; skip unrelated upcoming events
     )
 
     ctx = {

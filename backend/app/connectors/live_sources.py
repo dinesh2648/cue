@@ -16,9 +16,11 @@ import re
 from sqlalchemy.orm import Session
 
 from ..integrations import gmail as gmail_api
+from ..integrations import google_calendar as calendar_api
 from ..integrations import google_drive as drive_api
+from ..integrations import notion as notion_api
 from ..integrations import slack as slack_api
-from .manager import inprocess_read_tokens
+from .manager import get_access_token, get_connection, inprocess_read_tokens
 
 log = logging.getLogger("copilot.live_sources")
 
@@ -29,6 +31,15 @@ async def _safe(coro):
     except Exception as exc:  # pragma: no cover - best-effort per source
         log.info("live_sources: source read failed (skipped): %s", exc)
         return []
+
+
+async def _provider_token(db: Session, user_id: str, provider: str) -> str | None:
+    """A live (non-demo) token for a connector read in-process (Notion PAT, Calendar)."""
+    t = await get_access_token(db, user_id, provider)
+    return None if (not t or t.startswith("demo-")) else t
+
+
+_CAL_WORDS = {"meeting", "meetings", "calendar", "schedule", "scheduled", "upcoming", "agenda", "when", "invite", "call"}
 
 
 # Slack search is KEYWORD-based (unlike Gmail/Drive full-text): a whole natural-language question
@@ -58,15 +69,20 @@ async def gather_comms(
     gmail_k: int = 6,
     drive_k: int = 4,
     slack_k: int = 5,
+    notion: bool = True,
+    calendar: bool = True,
 ) -> list[dict]:
-    """Relevant Gmail / Drive / Slack items for `query`, as a list of {source, ...} dicts.
+    """Relevant items from the user's IN-PROCESS sources for `query`, as a list of {source, ...}
+    dicts. Covers Gmail, Drive, Slack, Notion (PAT) and Calendar — every source that has no hosted
+    MCP the agent could call itself. (Remote-MCP sources — Jira/GitHub/HubSpot/Notion-DCR — reach
+    the agent directly as tools and aren't duplicated here.)
 
-    read_bodies=True also reads the email body / file text / top channel's recent thread for the
-    best matches — richer, for prep & the summary (background, latency-tolerant). read_bodies=False
-    stays at search snippets — lighter, for live in-meeting answers (latency-sensitive).
+    read_bodies=True also reads the email body / file text / Notion page / top channel's recent
+    thread for the best matches — richer, for prep & the summary (background, latency-tolerant).
+    read_bodies=False stays at search snippets — lighter, for live in-meeting answers.
 
     `tokens` may be a pre-fetched {gmail, google_drive, slack} map (avoids a second token refresh
-    when the caller already has them); otherwise they're resolved here.
+    when the caller already has them); Notion/Calendar tokens are resolved here as needed.
     """
     q = (query or "").strip()[:200]
     if not q or not user_id:
@@ -115,14 +131,51 @@ async def gather_comms(
                     ch_name = next((h.get("channel") for h in hits if h.get("channel_id") == top_ch), "")
                     comms.append({"source": "slack", "channel": ch_name, "recent_messages": texts})
 
+    notion_hits = 0
+    if notion:
+        # PAT connections are read in-process here; a DCR (OAuth) Notion flows via the remote MCP
+        # server instead — its token isn't a Notion API key, so skip it to avoid a guaranteed 401.
+        nconn = get_connection(db, user_id, "notion")
+        notion_is_dcr = bool(nconn and (nconn.oauth_meta or {}).get("token_endpoint"))
+        notion_token = None if (not nconn or notion_is_dcr) else await _provider_token(db, user_id, "notion")
+        if notion_token:
+            pages = await _safe(notion_api.search(notion_token, q, k=4))
+            notion_hits = len(pages)
+            for i, p in enumerate(pages):
+                item = {"source": "notion", "title": p.get("title", ""), "url": p.get("url", ""), "id": p.get("id")}
+                if read_bodies and i < 2 and p.get("id"):
+                    body = await _safe(notion_api.page_text(notion_token, p["id"]))
+                    if isinstance(body, str) and body.strip():
+                        item["body"] = body
+                comms.append(item)
+
+    cal_count = 0
+    if calendar:
+        cal_token = await _provider_token(db, user_id, "google_calendar")
+        if cal_token:
+            events = await _safe(calendar_api.list_upcoming(cal_token, max_results=10, days=30))
+            kws = {w for w in _keywords(q).split() if len(w) > 2}
+            cal_ish = bool(kws & _CAL_WORDS) or any(w in q.lower() for w in ("next meeting", "my calendar"))
+            for ev in events:
+                hay = (ev.get("title", "") + " " + " ".join(ev.get("attendees") or [])).lower()
+                if cal_ish or (kws and any(k in hay for k in kws)):
+                    comms.append({
+                        "source": "calendar", "title": ev.get("title", ""), "start": ev.get("start", ""),
+                        "attendees": ev.get("attendees") or [], "url": ev.get("html_link", ""),
+                    })
+                    cal_count += 1
+                if cal_count >= 5:
+                    break
+
     log.info(
-        "gather_comms: q=%r tokens(gmail=%s drive=%s slack=%s) items=%d slack_hits=%d",
-        q[:80], bool(gmail_token), bool(drive_token), bool(slack_token), len(comms), slack_hits,
+        "gather_comms: q=%r tokens(gmail=%s drive=%s slack=%s) items=%d slack_hits=%d notion_hits=%d cal=%d",
+        q[:80], bool(gmail_token), bool(drive_token), bool(slack_token),
+        len(comms), slack_hits, notion_hits, cal_count,
     )
     return comms
 
 
-_LABEL = {"gmail": "Email", "drive": "Drive", "slack": "Slack"}
+_LABEL = {"gmail": "Email", "drive": "Drive", "slack": "Slack", "notion": "Notion", "calendar": "Calendar"}
 
 
 def format_comms(comms: list[dict], *, max_chars: int = 6000) -> str:
@@ -138,6 +191,11 @@ def format_comms(comms: list[dict], *, max_chars: int = 6000) -> str:
             for t in c["recent_messages"]:
                 if t.strip():
                     lines.append(f"    • {t.strip()[:200]}")
+            continue
+        if c.get("source") == "calendar":
+            att = ", ".join(c.get("attendees") or [])[:80]
+            head = f"- [{src}] {c.get('title', '')[:120]} — {c.get('start', '')}"
+            lines.append(head + (f" (with {att})" if att else ""))
             continue
         title = (c.get("subject") or c.get("title") or c.get("name") or c.get("text") or c.get("channel") or "").strip()
         meta = (c.get("from") or c.get("user") or c.get("channel") or "")
@@ -155,6 +213,8 @@ _SOURCE_META = {
     "gmail": ("Gmail", "email"),
     "drive": ("Google Drive", "document"),
     "slack": ("Slack", "connector"),
+    "notion": ("Notion", "document"),
+    "calendar": ("Google Calendar", "connector"),
 }
 
 
@@ -171,7 +231,7 @@ def comms_sources(comms: list[dict]) -> list[dict]:
             label, stype = _SOURCE_META.get(s, ((s or "").title(), "connector"))
             out.append({
                 "label": label, "type": stype, "detail": "live",
-                "url": c.get("permalink") or c.get("webViewLink") or "",
+                "url": c.get("permalink") or c.get("webViewLink") or c.get("url") or "",
             })
     return out
 
@@ -182,8 +242,10 @@ def comms_evidence(comms: list[dict], k: int = 3) -> list[str]:
     for c in comms or []:
         if c.get("recent_messages"):
             ev.append(f"Slack #{c.get('channel', '')}: " + " / ".join(c["recent_messages"][:2])[:180])
+        elif c.get("source") == "calendar":
+            ev.append(f"Calendar: {c.get('title', '')} — {c.get('start', '')}"[:180])
         else:
-            head = (c.get("subject") or c.get("name") or c.get("text") or "").strip()
+            head = (c.get("subject") or c.get("title") or c.get("name") or c.get("text") or "").strip()
             body = (c.get("body") or c.get("snippet") or "").strip()
             snip = (f"{head} — {body}" if head and body else head or body)[:180]
             if snip:
