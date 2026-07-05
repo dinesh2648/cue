@@ -70,12 +70,10 @@ class SalesPack(CopilotPack):
             # for THIS question and hand it in, so the live answer reasons over every connected
             # source. read_bodies=False keeps it snappy for the in-meeting SLA.
             comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
-            src_ctx = live_sources.format_comms(comms, max_chars=3500)
-            if not servers and not src_ctx:
+            if not servers and not comms:
                 return None
             return await claude_agent.run_turn(
-                text, intent.intent_type, servers, persona="sales", context=context,
-                sources_context=src_ctx,
+                text, intent.intent_type, servers, persona="sales", context=context, comms=comms,
             )
         return None
 

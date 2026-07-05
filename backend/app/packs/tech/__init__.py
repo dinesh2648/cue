@@ -44,11 +44,9 @@ class TechPack(SalesPack):
             # and hand it in alongside the remote tools (Jira/GitHub/Notion) so the live answer spans
             # every source. read_bodies=False keeps the in-meeting latency low.
             comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
-            src_ctx = live_sources.format_comms(comms, max_chars=3500)
-            if not servers and not src_ctx:
+            if not servers and not comms:
                 return None
             return await claude_agent.run_turn(
-                text, intent.intent_type, servers, persona="tech", context=context,
-                sources_context=src_ctx,
+                text, intent.intent_type, servers, persona="tech", context=context, comms=comms,
             )
         return None

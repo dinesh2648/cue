@@ -11,6 +11,7 @@ Single source of truth: prep_ops, the packs' deep_answer, and summary all call g
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -25,8 +26,26 @@ log = logging.getLogger("copilot.live_sources")
 async def _safe(coro):
     try:
         return await coro
-    except Exception:  # pragma: no cover - best-effort per source
+    except Exception as exc:  # pragma: no cover - best-effort per source
+        log.info("live_sources: source read failed (skipped): %s", exc)
         return []
+
+
+# Slack search is KEYWORD-based (unlike Gmail/Drive full-text): a whole natural-language question
+# matches nothing. Reduce it to salient terms before searching Slack.
+_STOP = {
+    "what", "whats", "what's", "how", "why", "when", "where", "who", "which", "the", "a", "an",
+    "is", "are", "was", "were", "do", "does", "did", "of", "to", "in", "on", "at", "for", "about",
+    "with", "and", "or", "our", "my", "me", "i", "we", "us", "you", "your", "any", "there", "that",
+    "this", "these", "those", "can", "could", "would", "should", "tell", "give", "show", "get",
+    "please", "status", "update", "latest", "recent", "happening", "going", "been", "have", "has",
+}
+
+
+def _keywords(q: str) -> str:
+    toks = [re.sub(r"[^\w-]", "", w) for w in (q or "").lower().split()]
+    kw = [w for w in toks if w and w not in _STOP and len(w) > 2]
+    return " ".join(kw[:8]) or (q or "").strip()
 
 
 async def gather_comms(
@@ -77,8 +96,15 @@ async def gather_comms(
                 if isinstance(body, str) and body.strip():
                     item["body"] = body
             comms.append(item)
+    slack_hits = 0
     if slack_token:
-        hits = await _safe(slack_api.search(slack_token, q, k=slack_k))
+        # Slack search is keyword-based → reduce the question to salient terms, then fall back to the
+        # raw query only if that yields nothing (short/proper-noun queries survive _keywords anyway).
+        sq = _keywords(q)
+        hits = await _safe(slack_api.search(slack_token, sq, k=slack_k))
+        if not hits and sq != q:
+            hits = await _safe(slack_api.search(slack_token, q, k=slack_k))
+        slack_hits = len(hits)
         comms += [{"source": "slack", **sm} for sm in hits]
         if read_bodies:  # deepen: pull the top matched channel's recent thread, not just isolated hits
             top_ch = next((h.get("channel_id") for h in hits if h.get("channel_id")), None)
@@ -88,6 +114,11 @@ async def gather_comms(
                 if texts:
                     ch_name = next((h.get("channel") for h in hits if h.get("channel_id") == top_ch), "")
                     comms.append({"source": "slack", "channel": ch_name, "recent_messages": texts})
+
+    log.info(
+        "gather_comms: q=%r tokens(gmail=%s drive=%s slack=%s) items=%d slack_hits=%d",
+        q[:80], bool(gmail_token), bool(drive_token), bool(slack_token), len(comms), slack_hits,
+    )
     return comms
 
 
@@ -118,3 +149,45 @@ def format_comms(comms: list[dict], *, max_chars: int = 6000) -> str:
         if body:
             lines.append(f"    {body[:600]}")
     return "\n".join(lines)[:max_chars]
+
+
+_SOURCE_META = {
+    "gmail": ("Gmail", "email"),
+    "drive": ("Google Drive", "document"),
+    "slack": ("Slack", "connector"),
+}
+
+
+def comms_sources(comms: list[dict]) -> list[dict]:
+    """Source chips for whichever in-process sources actually returned content — the live-answer
+    parser only credits MCP tool calls, so without this Gmail/Drive/Slack we hand the model are
+    invisible in the answer's sources even when they were consulted."""
+    seen: list[str] = []
+    out: list[dict] = []
+    for c in comms or []:
+        s = c.get("source")
+        if s and s not in seen:
+            seen.append(s)
+            label, stype = _SOURCE_META.get(s, ((s or "").title(), "connector"))
+            out.append({
+                "label": label, "type": stype, "detail": "live",
+                "url": c.get("permalink") or c.get("webViewLink") or "",
+            })
+    return out
+
+
+def comms_evidence(comms: list[dict], k: int = 3) -> list[str]:
+    """A few short evidence snippets drawn from the in-process content, for the answer card."""
+    ev: list[str] = []
+    for c in comms or []:
+        if c.get("recent_messages"):
+            ev.append(f"Slack #{c.get('channel', '')}: " + " / ".join(c["recent_messages"][:2])[:180])
+        else:
+            head = (c.get("subject") or c.get("name") or c.get("text") or "").strip()
+            body = (c.get("body") or c.get("snippet") or "").strip()
+            snip = (f"{head} — {body}" if head and body else head or body)[:180]
+            if snip:
+                ev.append(snip)
+        if len(ev) >= k:
+            break
+    return ev

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 
 from ..config import settings
+from ..connectors import live_sources
 
 log = logging.getLogger("copilot.claude")
 
@@ -76,13 +77,14 @@ async def run_turn(
     mcp_servers: list[dict],
     persona: str = "sales",
     context: str = "",
-    sources_context: str = "",
+    comms: list[dict] | None = None,
 ) -> dict | None:
     """Answer one question using the user's live MCP tools. None on fallback.
 
-    `sources_context` = pre-fetched excerpts from the user's IN-PROCESS sources (Gmail / Drive /
-    Slack) that have no hosted MCP the model can call itself — attached so live answers reason over
-    EVERY connected source, not just the remote-MCP ones (Jira/GitHub/HubSpot/Notion).
+    `comms` = pre-fetched items from the user's IN-PROCESS sources (Gmail / Drive / Slack) that have
+    no hosted MCP the model can call itself. They're injected into the prompt so the answer reasons
+    over EVERY connected source (not just remote-MCP ones), AND credited in the returned sources —
+    the parser only sees MCP tool calls, so without this they'd be invisible in the answer.
     """
     if not available():
         return None
@@ -112,6 +114,7 @@ async def run_turn(
             f"You have live, permission-scoped access to these connected tools: {connected}. "
             "Call whichever are relevant — don't answer from memory when a tool can confirm."
         )
+    sources_context = live_sources.format_comms(comms or [], max_chars=3500)
     if sources_context:
         parts.append(
             "Already-fetched excerpts from the user's connected Email / Drive / Slack (these have no "
@@ -141,7 +144,20 @@ async def run_turn(
         log.warning("Claude agent call failed; falling back: %s", exc)
         return None
 
-    return _parse(resp, mcp_servers)
+    result = _parse(resp, mcp_servers)
+
+    # Credit the in-process sources we handed the model — _parse only sees MCP tool calls, so
+    # Gmail/Drive/Slack (injected via the prompt) would otherwise never show up in the answer.
+    if comms:
+        existing = {s.get("label") for s in result["sources"]}
+        for s in live_sources.comms_sources(comms):
+            if s["label"] not in existing:
+                result["sources"].append(s)
+        if not result["evidence"]:
+            result["evidence"] = live_sources.comms_evidence(comms)
+        if result["sources"]:
+            result["grounded"] = True
+    return result
 
 
 def _parse(resp, mcp_servers: list[dict]) -> dict:
