@@ -41,8 +41,10 @@ class CopilotPack:
         return res if res is not None else self.detect(text)
 
     # ── Capability ────────────────────────────────────────────────────────────
-    def has_deep(self, servers: list[dict]) -> bool:
-        """Whether a deep (agentic) second tier will run for this turn."""
+    def has_deep(self, servers: list[dict], has_inprocess: bool = False) -> bool:
+        """Whether a deep (agentic) second tier will run for this turn.
+        `has_inprocess` = the user has connected Gmail/Drive/Slack (read in-process, no hosted MCP),
+        which is enough to deepen an answer even without any remote-MCP server."""
         return False
 
     # ── Inline flow (real-time, two-tier) ──────────────────────────────────────
@@ -71,8 +73,10 @@ class CopilotPack:
         history: list[dict] | None = None,
         docs: list[dict] | None = None,
         persona: str = "sales",
+        comms: list[dict] | None = None,
     ) -> dict:
         """Generate the post-meeting summary + follow-up artifacts, synthesizing the current
-        transcript with prior meetings (`history`) and account sources (`crm`, `docs`).
+        transcript with prior meetings (`history`), account sources (`crm`, `docs`), and the
+        owner's live Gmail/Drive/Slack content (`comms`).
         `persona` ('tech'|'sales') frames the brief for the owner's team."""
         raise NotImplementedError

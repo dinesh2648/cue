@@ -9,7 +9,7 @@ from ...agent import claude_agent, claude_sdk
 from ...agent.intent import INTENT_DESCRIPTIONS, IntentResult, detect_intent
 from ...agent.pipeline import pipeline
 from ...agent.summary import generate_summary
-from ...connectors import manager
+from ...connectors import live_sources, manager
 from ...integrations import hubspot
 from ..base import CopilotPack, PackManifest
 
@@ -31,8 +31,10 @@ class SalesPack(CopilotPack):
     def intent_descriptions(self) -> dict[str, str]:
         return INTENT_DESCRIPTIONS
 
-    def has_deep(self, servers: list[dict]) -> bool:
-        return claude_sdk.available() or (claude_agent.available() and bool(servers))
+    def has_deep(self, servers: list[dict], has_inprocess: bool = False) -> bool:
+        # Deep runs when we can research SOMETHING live: a remote MCP server (Jira/GitHub/HubSpot/
+        # Notion) OR an in-process source (Gmail/Drive/Slack). Either is enough for the agent tier.
+        return claude_sdk.available() or (claude_agent.available() and (bool(servers) or has_inprocess))
 
     async def fast_answer(self, *, db, meeting, text, intent, doc_catalog) -> dict:
         # Persona is the pack itself (TechPack inherits this method → self.manifest.key == "tech").
@@ -63,14 +65,22 @@ class SalesPack(CopilotPack):
                 drive_token=tk["google_drive"], gmail_token=tk["gmail"], slack_token=tk["slack"],
                 context=context,
             )
-        if claude_agent.available() and servers:
+        if claude_agent.available():
+            # messages_mcp can't call Gmail/Drive/Slack (no hosted MCP) — pre-fetch their content
+            # for THIS question and hand it in, so the live answer reasons over every connected
+            # source. read_bodies=False keeps it snappy for the in-meeting SLA.
+            comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
+            src_ctx = live_sources.format_comms(comms, max_chars=3500)
+            if not servers and not src_ctx:
+                return None
             return await claude_agent.run_turn(
-                text, intent.intent_type, servers, persona="sales", context=context
+                text, intent.intent_type, servers, persona="sales", context=context,
+                sources_context=src_ctx,
             )
         return None
 
-    async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None, persona="sales") -> dict:
+    async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None, persona="sales", comms=None) -> dict:
         return await generate_summary(
             meeting=meeting, intents=intents, suggestions=suggestions, crm=crm,
-            transcript=transcript, history=history, docs=docs, persona=persona,
+            transcript=transcript, history=history, docs=docs, persona=persona, comms=comms,
         )

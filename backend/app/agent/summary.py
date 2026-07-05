@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 
+from ..connectors.live_sources import format_comms
 from ..integrations.llm import llm_complete
 
 _CONCERNS = {
@@ -182,10 +183,11 @@ def _history_brief(history: list[dict]) -> str:
     return "\n".join(out)
 
 
-def _build_context(meeting, intents, suggestions, crm, transcript, history, docs) -> str:
+def _build_context(meeting, intents, suggestions, crm, transcript, history, docs, comms) -> str:
     topics = sorted({i["intent_type"] for i in intents if i.get("intent_type") and i["intent_type"] != "general"})
     answers = [s.get("answer", "") for s in suggestions if s.get("answer")]
     docs_block = "\n".join(f"  • {d.get('title')}: {(d.get('snippet') or '')[:160]}" for d in docs) or "  (none)"
+    comms_block = format_comms(comms or [], max_chars=4000)
     return (
         f"CLIENT: {meeting.get('customer_company', 'Unknown')}"
         f" | Contact: {meeting.get('customer_contact', '—')}"
@@ -193,6 +195,8 @@ def _build_context(meeting, intents, suggestions, crm, transcript, history, docs
         f"PREVIOUS MEETINGS WITH THIS CLIENT (most recent first):\n{_history_brief(history)}\n\n"
         f"CRM SNAPSHOT:\n{_crm_brief(crm)}\n\n"
         f"RELEVANT ENTERPRISE DOCUMENTS:\n{docs_block}\n\n"
+        f"RECENT EMAIL / DRIVE / SLACK ON THIS ACCOUNT (the owner's own connected sources):\n"
+        f"{comms_block or '  (none)'}\n\n"
         f"THIS MEETING — topics the customer raised: {', '.join(topics) or 'general discussion'}\n"
         f"THIS MEETING — answers the copilot gave:\n"
         + ("\n".join(f"  • {a[:200]}" for a in answers[:8]) or "  (none)")
@@ -216,15 +220,17 @@ async def generate_summary(
     history: list[dict] | None = None,
     docs: list[dict] | None = None,
     persona: str = "sales",
+    comms: list[dict] | None = None,
 ) -> dict:
     """Synthesize the post-meeting brief from the current transcript, prior meetings with the
-    same client, the CRM snapshot, and enterprise docs. Heuristic baseline is the fallback.
+    same client, the CRM snapshot, enterprise docs, and the owner's live Gmail/Drive/Slack
+    content (`comms`). Heuristic baseline is the fallback.
     `persona` ('tech'|'sales') sets whether the brief is engineering- or sales-framed."""
     base = _heuristic(meeting, intents, suggestions, crm)
 
     raw = await llm_complete(
         system=_SUMMARY_SYSTEM_TECH if persona == "tech" else _SUMMARY_SYSTEM,
-        user=_build_context(meeting, intents, suggestions, crm, transcript, history or [], docs or []),
+        user=_build_context(meeting, intents, suggestions, crm, transcript, history or [], docs or [], comms or []),
         max_tokens=1800,
         temperature=0.3,
         timeout=60.0,  # large structured generation — well above the default 20s

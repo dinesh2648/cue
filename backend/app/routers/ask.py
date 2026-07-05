@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..connectors.manager import active_mcp_servers
+from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import get_db
 from ..models import KnowledgeDoc, User
 from ..packs.registry import get_pack, pack_for_team
@@ -61,6 +61,7 @@ async def ask(
     # A meeting-less context: the current user is the "owner"; no CRM company bound.
     ctx = SimpleNamespace(owner_user_id=user.id, crm_company_id=None, id=None, pack=pack.manifest.key)
     servers = await active_mcp_servers(db, user.id)
+    inproc = await inprocess_read_tokens(db, user.id)
 
     # Tier 1 — instant offline answer (internal knowledge docs + CRM).
     try:
@@ -73,7 +74,7 @@ async def ask(
 
     # Tier 2 — deep agentic answer over the user's live connected sources.
     deep = None
-    if pack.has_deep(servers):
+    if pack.has_deep(servers, has_inprocess=any(inproc.values())):
         try:
             deep = await pack.deep_answer(
                 db=db, meeting=ctx, text=query, intent=intent,

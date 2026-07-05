@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .actions import service as action_service
 from .agent import coaching, planner
+from .connectors import live_sources
 from .integrations import hubspot
 from .knowledge.store import index
 from .models import (
@@ -82,11 +83,18 @@ async def finalize_meeting(db: Session, meeting: Meeting, *, with_scorecard: boo
         meeting.pack = pack_key
     persona = "tech" if pack_key == "tech" else "sales"
 
+    # Pull the owner's own Gmail/Drive/Slack content around this account/topic so the recap can
+    # connect the call to what's happening across their connected sources (not just the transcript).
+    comms = []
+    if meeting.owner_user_id:
+        q = " ".join(x for x in [meeting.customer_company or "", topics] if x).strip()
+        comms = await live_sources.gather_comms(db, meeting.owner_user_id, q, read_bodies=True)
+
     summary_data = await get_pack(pack_key).summarize(
         meeting={"customer_company": meeting.customer_company, "customer_contact": meeting.customer_contact, "rep_name": meeting.rep_name},
         intents=[{"intent_type": i.intent_type} for i in intent_rows],
         suggestions=[{"actions": s.actions, "answer": s.answer} for s in suggestion_rows],
-        crm=crm, transcript=transcript_text, history=history, docs=docs, persona=persona,
+        crm=crm, transcript=transcript_text, history=history, docs=docs, persona=persona, comms=comms,
     )
 
     summary = db.scalar(select(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id)) or MeetingSummary(meeting_id=meeting_id)

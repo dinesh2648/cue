@@ -76,8 +76,14 @@ async def run_turn(
     mcp_servers: list[dict],
     persona: str = "sales",
     context: str = "",
+    sources_context: str = "",
 ) -> dict | None:
-    """Answer one question using the user's live MCP tools. None on fallback."""
+    """Answer one question using the user's live MCP tools. None on fallback.
+
+    `sources_context` = pre-fetched excerpts from the user's IN-PROCESS sources (Gmail / Drive /
+    Slack) that have no hosted MCP the model can call itself — attached so live answers reason over
+    EVERY connected source, not just the remote-MCP ones (Jira/GitHub/HubSpot/Notion).
+    """
     if not available():
         return None
 
@@ -105,6 +111,12 @@ async def run_turn(
         parts.append(
             f"You have live, permission-scoped access to these connected tools: {connected}. "
             "Call whichever are relevant — don't answer from memory when a tool can confirm."
+        )
+    if sources_context:
+        parts.append(
+            "Already-fetched excerpts from the user's connected Email / Drive / Slack (these have no "
+            "callable tool here — use them directly as ground truth, they are the user's own data):\n"
+            f"{sources_context}"
         )
     parts.append(
         f"(Detected topic: {intent_type}.) Find the answer using the connected tools and "

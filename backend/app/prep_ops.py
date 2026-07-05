@@ -13,11 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .agent import prep
+from .connectors import live_sources
 from .connectors.manager import active_mcp_servers, get_access_token
-from .integrations import gmail as gmail_api
-from .integrations import google_drive as drive_api
 from .integrations import hubspot
-from .integrations import slack as slack_api
 from .knowledge.store import index
 from .models import Meeting, MeetingPrep, MeetingSummary, User
 
@@ -171,48 +169,15 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     gmail_token = await _live_token("gmail")
     slack_token = await _live_token("slack")  # read in-process via the Slack Web API
 
-    # Pre-fetch recent Gmail / Drive / Slack matches for the attendees + topic. These sources are
-    # read in-process (not hosted MCP), so the live-research path (_mcp_brief) can't reach them —
-    # pulling them into the context here is how they get considered, incl. in Docker.
-    q = " ".join([customer or event.get("title", ""), *external]).strip()[:200]
-
-    async def _safe(coro):
-        try:
-            return await coro
-        except Exception:  # pragma: no cover - best-effort per source
-            return []
-
-    comms: list[dict] = []
-    if q:
-        if gmail_token:
-            hits = await _safe(gmail_api.search(gmail_token, q, k=6))
-            for i, m in enumerate(hits):
-                item = {"source": "gmail", **m}
-                if i < 3 and m.get("id"):  # read the actual email body (not just the snippet) for the top matches
-                    body = await _safe(gmail_api.read_message(gmail_token, m["id"], max_chars=1200))
-                    if isinstance(body, str) and body.strip():
-                        item["body"] = body
-                comms.append(item)
-        if drive_token:
-            files = await _safe(drive_api.search(drive_token, q, k=4))
-            for i, d in enumerate(files):
-                item = {"source": "drive", **d}
-                if i < 2 and d.get("id"):  # read the file's text (Docs/Sheets/Slides exported), not just its name
-                    body = await _safe(drive_api.read_file(drive_token, d["id"], max_chars=1000))
-                    if isinstance(body, str) and body.strip():
-                        item["body"] = body
-                comms.append(item)
-        if slack_token:
-            hits = await _safe(slack_api.search(slack_token, q, k=5))
-            comms += [{"source": "slack", **sm} for sm in hits]
-            # deepen: pull recent context from the top matched channel (not just isolated hits)
-            top_ch = next((h.get("channel_id") for h in hits if h.get("channel_id")), None)
-            if top_ch:
-                hist = await _safe(slack_api.channel_history(slack_token, top_ch, limit=12))
-                texts = [m.get("text", "") for m in hist if m.get("text")][:12]
-                if texts:
-                    ch_name = next((h.get("channel") for h in hits if h.get("channel_id") == top_ch), "")
-                    comms.append({"source": "slack", "channel": ch_name, "recent_messages": texts})
+    # Pre-fetch recent Gmail / Drive / Slack content for the attendees + topic. Read in-process
+    # (no hosted MCP the research path can reach), reading actual email bodies / file text / the top
+    # channel's recent thread. Shared verbatim with live answers & the summary (live_sources).
+    q = " ".join([customer or event.get("title", ""), *external]).strip()
+    comms = await live_sources.gather_comms(
+        db, user.id, q,
+        tokens={"gmail": gmail_token, "google_drive": drive_token, "slack": slack_token},
+        read_bodies=True,
+    )
 
     ctx = {
         "title": event.get("title", ""),

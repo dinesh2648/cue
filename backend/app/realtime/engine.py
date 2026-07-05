@@ -14,7 +14,7 @@ import time
 
 from sqlalchemy import func, select
 
-from ..connectors.manager import active_mcp_servers
+from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import SessionLocal
 from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment
 from ..packs.registry import get_pack, pack_for_owner
@@ -133,7 +133,11 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
         servers = (
             await active_mcp_servers(db, meeting.owner_user_id) if meeting.owner_user_id else []
         )
-        deep_will_run = pack.has_deep(servers)
+        # In-process sources (Gmail/Drive/Slack) have no hosted MCP but still power a deep answer.
+        inproc = (
+            await inprocess_read_tokens(db, meeting.owner_user_id) if meeting.owner_user_id else {}
+        )
+        deep_will_run = pack.has_deep(servers, has_inprocess=any(inproc.values()))
 
         # Tier 1 — instant grounded answer (the SLA-critical path).
         t0 = time.perf_counter()

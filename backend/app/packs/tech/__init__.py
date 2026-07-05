@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...agent import claude_agent, claude_sdk
 from ...agent.intent import TECH_INTENT_DESCRIPTIONS
-from ...connectors import manager
+from ...connectors import live_sources, manager
 from ..base import PackManifest
 from ..sales import SalesPack
 
@@ -39,8 +39,16 @@ class TechPack(SalesPack):
                 drive_token=tk["google_drive"], gmail_token=tk["gmail"], slack_token=tk["slack"],
                 context=context,
             )
-        if claude_agent.available() and servers:
+        if claude_agent.available():
+            # Pull the engineer's Gmail/Drive/Slack content for this question (no hosted MCP to call)
+            # and hand it in alongside the remote tools (Jira/GitHub/Notion) so the live answer spans
+            # every source. read_bodies=False keeps the in-meeting latency low.
+            comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
+            src_ctx = live_sources.format_comms(comms, max_chars=3500)
+            if not servers and not src_ctx:
+                return None
             return await claude_agent.run_turn(
-                text, intent.intent_type, servers, persona="tech", context=context
+                text, intent.intent_type, servers, persona="tech", context=context,
+                sources_context=src_ctx,
             )
         return None
