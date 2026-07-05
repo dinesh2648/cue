@@ -259,7 +259,10 @@ async def _valid_access_token(db: Session, conn: ConnectorConnection) -> str | N
     exp = conn.expires_at
     if exp is not None and exp.tzinfo is None:
         exp = exp.replace(tzinfo=timezone.utc)
-    needs_refresh = exp is not None and _now() >= exp - timedelta(seconds=60)
+    # Refresh proactively 5 min before expiry (not the last 60s) so a call never lands on a
+    # just-expired token. Long-term validity comes from the refresh token staying alive — see
+    # the OAuth-consent-screen note in docs; refreshing more often does NOT extend it.
+    needs_refresh = exp is not None and _now() >= exp - timedelta(minutes=5)
     if needs_refresh and conn.refresh_token_enc:
         try:
             meta = conn.oauth_meta or {}
