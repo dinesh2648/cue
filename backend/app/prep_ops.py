@@ -37,7 +37,7 @@ def _persona(user: User) -> str:
 # Bump when the prep scaffold/prompt changes so already-cached briefs auto-regenerate with the
 # new structure (no migration). The clean _persona above still drives generation; this only
 # stamps the cache key. v2 = persona-aware section scaffold (engineering vs sales).
-_PREP_VERSION = "4"  # v4: pre-fetch Gmail/Drive/Slack into context (+ v3 persona docs + MCP research)
+_PREP_VERSION = "5"  # v5: credit Google Calendar source (+ v4 Gmail/Drive/Slack pre-fetch)
 
 
 def _persona_key(user: User) -> str:
@@ -207,6 +207,11 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         notion_token=notion_token, drive_token=drive_token, gmail_token=gmail_token,
         slack_token=slack_token,
     )
+    # The brief is always built from the calendar event itself (attendees, title, time) — credit it.
+    result["sources"] = [
+        {"label": "Google Calendar (your account)", "type": "connector", "detail": "this meeting", "url": ""},
+        *(result.get("sources") or []),
+    ]
 
     # Replace any prior prep for this (user, event) so the cache holds one row.
     for old in db.scalars(
