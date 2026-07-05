@@ -78,10 +78,19 @@ export function Markdown({ md }: { md: string }) {
   return <div className="prep-md">{blocks}</div>;
 }
 
+const PREP_HINTS = [
+  "Reading your calendar invite & attendees…",
+  "Checking Jira tickets & GitHub activity…",
+  "Scanning recent emails…",
+  "Searching Notion & shared docs…",
+  "Pulling it together into your brief…",
+];
+
 export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
   const [prep, setPrep] = useState<MeetingPrep | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(true);
 
@@ -125,13 +134,19 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
+  // Rotate the progress hint while generating (cosmetic — reflects what prep actually does).
+  useEffect(() => {
+    if (!generating || prep) return;
+    const t = setInterval(() => setHint((h) => (h + 1) % PREP_HINTS.length), 3000);
+    return () => clearInterval(t);
+  }, [generating, prep]);
+
   return (
     <div className="prep-panel">
       {generating && !prep ? (
         <div className="prep-loading">
           <span className="prep-spinner" aria-hidden="true" />
-          Researching across your connected sources &amp; prior notes…
-          <small style={{ opacity: 0.7 }}> this can take up to a minute</small>
+          <span>{PREP_HINTS[hint]}<small style={{ opacity: 0.7 }}> · up to a minute</small></span>
         </div>
       ) : error && !prep ? (
         <div className="prep-error">
