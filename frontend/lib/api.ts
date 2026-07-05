@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -111,7 +111,7 @@ export const api = {
   upcomingMeetings: () => request<UpcomingMeetings>("/api/calendar/upcoming"),
   // Pre-meeting prep brief (researched across connected sources + prior notes; cached)
   meetingPrep: (eventId: string, refresh = false) =>
-    request<MeetingPrep>(`/api/calendar/prep/${encodeURIComponent(eventId)}${refresh ? "?refresh=1" : ""}`),
+    request<MeetingPrepResponse>(`/api/calendar/prep/${encodeURIComponent(eventId)}${refresh ? "?refresh=1" : ""}`),
   // Prep brief tied to a meeting record (read-only; what was prepared before this meeting)
   meetingPrepRecord: (meetingId: string) =>
     request<MeetingPrepRecord>(`/api/meetings/${meetingId}/prep`),

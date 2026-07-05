@@ -96,6 +96,11 @@ export interface MeetingPrep {
   generated_at: string | null;
   cached: boolean;
 }
+// The prep endpoint returns either a finished brief, or {generating:true} (poll again), or {error}.
+export interface MeetingPrepResponse extends Partial<MeetingPrep> {
+  generating?: boolean;
+  error?: string;
+}
 
 export interface MeetingPrepRecord {
   found: boolean;

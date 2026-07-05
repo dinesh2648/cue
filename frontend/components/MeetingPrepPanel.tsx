@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { MeetingPrep } from "@/lib/types";
 
@@ -80,33 +80,62 @@ export function Markdown({ md }: { md: string }) {
 
 export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
   const [prep, setPrep] = useState<MeetingPrep | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
 
-  const load = async (refresh = false) => {
-    setLoading(true);
+  // Generation runs in the background server-side; poll until it's ready.
+  const poll = async (refresh = false) => {
     setError(null);
     try {
-      setPrep(await api.meetingPrep(eventId, refresh));
+      const r = await api.meetingPrep(eventId, refresh);
+      if (!alive.current) return;
+      if (r.generating) {
+        setGenerating(true);
+        timer.current = setTimeout(() => poll(false), 4000);
+      } else if (r.error) {
+        setGenerating(false);
+        setError(r.error);
+      } else {
+        setGenerating(false);
+        setPrep(r as MeetingPrep);
+      }
     } catch (e) {
+      if (!alive.current) return;
+      setGenerating(false);
       setError(e instanceof Error ? e.message : "Failed to prepare notes");
-    } finally {
-      setLoading(false);
     }
   };
 
+  const start = (refresh = false) => {
+    if (timer.current) clearTimeout(timer.current);
+    setGenerating(true);
+    if (refresh) setPrep(null);
+    poll(refresh);
+  };
+
   useEffect(() => {
-    load();
+    alive.current = true;
+    start(false);
+    return () => {
+      alive.current = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   return (
     <div className="prep-panel">
-      {loading && !prep ? (
-        <div className="prep-loading">🔎 Researching across your connected sources & prior notes…</div>
-      ) : error ? (
+      {generating && !prep ? (
+        <div className="prep-loading">
+          <span className="prep-spinner" aria-hidden="true" />
+          Researching across your connected sources &amp; prior notes…
+          <small style={{ opacity: 0.7 }}> this can take up to a minute</small>
+        </div>
+      ) : error && !prep ? (
         <div className="prep-error">
-          {error} <button className="btn sm" onClick={() => load(true)}>Retry</button>
+          {error} <button className="btn sm" onClick={() => start(true)}>Retry</button>
         </div>
       ) : prep ? (
         <>
@@ -122,8 +151,8 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
             <span className="prep-meta">
               {prep.engine === "claude+mcp" ? "researched live" : prep.engine === "llm" ? "from your notes" : "limited context"}
               {" · "}
-              <button className="prep-refresh" onClick={() => load(true)} disabled={loading}>
-                {loading ? "refreshing…" : "↻ refresh"}
+              <button className="prep-refresh" onClick={() => start(true)} disabled={generating}>
+                {generating ? "refreshing…" : "↻ refresh"}
               </button>
             </span>
           </div>

@@ -6,6 +6,7 @@ enabled, etc.) instead of failing silently.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .. import prep_ops
 from ..connectors import manager
-from ..db import get_db
+from ..db import SessionLocal, get_db
 from ..integrations import google_calendar
 from ..models import User
 from ..security.auth import get_current_user
@@ -88,6 +89,29 @@ async def upcoming(user: User = Depends(get_current_user), db: Session = Depends
         return {"connected": True, "events": [], "error": "fetch_failed"}
 
 
+# Live research (Jira/GitHub/Notion + Gmail bodies + LLM) can take 60–90s — too long to hold an
+# HTTP request open (nginx 504). So generation runs in the background and the client polls.
+_prep_inflight: set[str] = set()
+_prep_error: dict[str, str] = {}
+_prep_tasks: set = set()  # hold task refs so they aren't garbage-collected mid-run
+
+
+async def _generate_prep_bg(user_id: str, event: dict) -> None:
+    key = f"{user_id}:{event['id']}"
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if user:
+            await prep_ops.build_prep(db, user, event, force=True)
+        _prep_error.pop(key, None)
+    except Exception as exc:  # pragma: no cover - surfaced to the client on the next poll
+        _prep_error[key] = str(exc)[:200]
+        log.warning("background prep failed for %s: %s", key, exc)
+    finally:
+        db.close()
+        _prep_inflight.discard(key)
+
+
 @router.get("/prep/{event_id}")
 async def get_prep(
     event_id: str,
@@ -95,15 +119,28 @@ async def get_prep(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Preparation brief for an upcoming meeting — cached, or researched on demand.
+    """Preparation brief for an upcoming meeting. Returns the cached brief immediately if fresh;
+    otherwise kicks off background research and returns {generating: true} so the client polls.
+    `refresh=1` forces a rebuild. Researches connected sources (Jira/GitHub/HubSpot/Notion +
+    Gmail/Drive/Slack) + prior notes."""
+    key = f"{user.id}:{event_id}"
 
-    Researches the rep's connected sources (HubSpot/Notion/Drive/Gmail) + prior meeting
-    notes + web. `refresh=1` regenerates. Returns the cached one immediately if fresh.
-    """
+    if key in _prep_inflight:  # a build is already running — keep the client polling
+        return {"generating": True, "cached": False}
+
     if not refresh:
         cached = prep_ops.get_cached(db, user, event_id)
         if cached and prep_ops._usable(cached, user):  # fresh AND matches current persona
-            return {**_prep_out(cached), "cached": True}
-    event = await _find_event(db, user, event_id)
-    row = await prep_ops.build_prep(db, user, event, force=bool(refresh))
-    return {**_prep_out(row), "cached": False}
+            return {**_prep_out(cached), "cached": True, "generating": False}
+        err = _prep_error.get(key)
+        if err:  # last build failed — surface it and stop the poll (a manual refresh retries)
+            _prep_error.pop(key, None)
+            return {"generating": False, "cached": False, "error": err}
+
+    event = await _find_event(db, user, event_id)  # fast calendar lookup; validates access
+    _prep_error.pop(key, None)
+    _prep_inflight.add(key)
+    task = asyncio.create_task(_generate_prep_bg(user.id, event))
+    _prep_tasks.add(task)
+    task.add_done_callback(_prep_tasks.discard)
+    return {"generating": True, "cached": False}

@@ -316,6 +316,9 @@ code { background: var(--bg-2); border: 1px solid var(--border); border-radius: 
 .meeting-card.open .meeting-row { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-color: var(--accent); }
 .prep-panel { border: 1px solid var(--accent); border-top: none; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; background: var(--surface-2, var(--surface)); padding: 14px 18px; }
 .prep-loading, .prep-error { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.prep-loading { display: flex; align-items: center; gap: 8px; }
+.prep-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.7s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .prep-error { color: var(--red, #f87171); display: flex; gap: 10px; align-items: center; }
 .prep-md { font-size: 13.5px; line-height: 1.6; color: var(--text); }
 .prep-md .prep-h { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 14px 0 6px; }
