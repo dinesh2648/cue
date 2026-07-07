@@ -27,8 +27,11 @@ _SYSTEM = (
     "latest thing the OTHER PERSON (not the rep) said, decide whether it needs a real answer the "
     "rep should give right now.\n"
     "needs_answer = true ONLY for a genuine question or an explicit request for information or "
-    "action. needs_answer = false for statements, opinions, acknowledgements ('sounds good'), "
-    "greetings, small talk, or thinking-out-loud.\n"
+    "action that the rep must actually answer with facts. needs_answer = false for statements, "
+    "opinions, acknowledgements ('sounds good'), greetings, small talk, and thinking-out-loud — "
+    "and CRUCIALLY false for social pleasantries and well-wishes EVEN when phrased as a question, "
+    "e.g. 'hope you're doing well?', 'hope all is okay?', 'how was your weekend?', 'how are you?', "
+    "'hope you had a good break?'. These are rapport, not information requests — do not answer them.\n"
     "When true, write 'query' as a concise standalone question — resolve pronouns like 'it/they/"
     "that' from the context — and pick the best intent_type. Always call the classify_turn tool."
 )

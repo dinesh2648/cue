@@ -81,40 +81,54 @@ def _is_external(attendees: list[str], organizer: str, rep_email: str) -> bool:
 
 async def _auto_join(db) -> None:
     if not recall.enabled():
+        log.debug("autopilot auto-join: off (no RECALL_API_KEY)")
         return
     now = datetime.now(timezone.utc)
     users = list(db.scalars(select(User).where(User.autopilot.is_(True))))
+    if not users:
+        log.debug("autopilot auto-join: no users have autopilot enabled")
+        return
     for user in users:
+        who = user.email or user.id
         token = await conn_manager.get_access_token(db, user.id, "google_calendar")
         if not token or token.startswith("demo-"):
+            log.info("autojoin[%s]: skipped — Google Calendar not connected", who)
             continue
         try:
             events = await google_calendar.list_upcoming(token, max_results=10, days=1)
         except Exception as exc:  # pragma: no cover
-            log.info("autopilot calendar read failed for %s: %s", user.id, exc)
+            log.info("autojoin[%s]: calendar read failed: %s", who, exc)
             continue
+        # Count why each event was/ wasn't joined, so a silent no-op is diagnosable from the logs.
+        st = {"events": len(events), "no_url": 0, "future": 0, "ended": 0, "solo": 0, "ext_skip": 0, "dup": 0, "dispatched": 0}
         for ev in events:
             if not ev.get("meeting_url") or not ev.get("start"):
+                st["no_url"] += 1
                 continue
             try:
                 start = datetime.fromisoformat(ev["start"].replace("Z", "+00:00"))
             except ValueError:
+                st["no_url"] += 1
                 continue
             mins = (start - now).total_seconds() / 60
             if mins > _JOIN_WINDOW_MIN:  # starts too far in the future
+                st["future"] += 1
                 continue
             # Join in-progress meetings too: from _JOIN_WINDOW_MIN before start until the
             # event's end. So a late start, a missed tick, or enabling autopilot mid-call still
             # gets a copilot. Fall back to a grace window if the event has no end time.
             if not _within_join_window(mins, ev.get("end"), now):
+                st["ended"] += 1
                 continue
             # Join both internal and external meetings — skip only solo events / personal holds
             # (a Meet link with no one else on the invite). Set AUTOPILOT_EXTERNAL_ONLY=1 to
             # restrict back to customer-facing (external) meetings only.
             others = [a for a in (ev.get("attendees") or []) if a and a != user.email]
             if not others:
+                st["solo"] += 1
                 continue
             if _external_only() and not _is_external(ev.get("attendees", []), ev.get("organizer", ""), user.email):
+                st["ext_skip"] += 1
                 continue
             # One copilot per meeting: skip if a bot is already (or was) on this event OR url.
             # Scope to the user's org so two tenants who happen to share a meeting URL
@@ -126,12 +140,17 @@ async def _auto_join(db) -> None:
                 )
             )
             if dup:
+                st["dup"] += 1
                 # Make sure this attendee can see the shared meeting.
                 if user.email and user.email not in (dup.attendees or []):
                     dup.attendees = [*(dup.attendees or []), user.email]
                     db.commit()
                 continue
             await _dispatch(db, user, ev)
+            st["dispatched"] += 1
+        # One concise line per autopilot user per tick (only when there's something to report).
+        if st["dispatched"] or st["events"]:
+            log.info("autojoin[%s]: %s", who, st)
 
 
 async def _dispatch(db, user: User, ev: dict) -> None:

@@ -128,8 +128,13 @@ _REQUEST_RE = re.compile(
 _SMALLTALK_RE = re.compile(
     r"^\s*(hi\b|hey\b|hello\b|yo\b|good\s+(morning|afternoon|evening)|"
     r"how\s+are\s+you|how're\s+you|how\s+are\s+things|how'?s\s+it\s+going|how\s+have\s+you\s+been|"
-    r"how\s+are\s+we|nice\s+to\s+(meet|see)|(great|good)\s+to\s+(see|meet)|"
-    r"thanks\b|thank\s+you|cheers\b|bye\b|goodbye\b)",
+    r"how\s+are\s+we|how\s+are\s+you\s+doing|how\s+is\s+everything|how'?s\s+everything|"
+    r"how\s+was\s+your\s+(weekend|day|week|holiday|vacation|trip|break|morning|evening|night)|"
+    r"hope\s+(you|all|everything|things|it|your|you're|youre|u|we|i)\b|"
+    r"trust\s+(you|all|everything|things|you're|youre|this)\b|"
+    r"long\s+time|good\s+to\s+hear|nice\s+to\s+hear|glad\s+to\s+hear|"
+    r"nice\s+to\s+(meet|see)|(great|good|lovely|pleasure)\s+to\s+(see|meet|be)|"
+    r"thanks\b|thank\s+you|cheers\b|bye\b|goodbye\b|take\s+care|have\s+a\s+(great|good|nice))",
     re.IGNORECASE,
 )
 
@@ -144,8 +149,9 @@ def _needs_answer(text: str) -> bool:
     has_signal = ("?" in t) or bool(_QUESTION_START_RE.match(t)) or bool(_REQUEST_RE.search(low))
     if not has_signal:
         return False
-    # "hey, how are you?" — parses as a question but is small talk with no real ask.
-    if _SMALLTALK_RE.match(low) and not _REQUEST_RE.search(low) and len(t.split()) <= 9:
+    # "hey, how are you?" / "hope you're doing well?" — parse as questions but are small talk
+    # with no real ask. A genuine request alongside the greeting still fires (via _REQUEST_RE).
+    if _SMALLTALK_RE.match(low) and not _REQUEST_RE.search(low) and len(t.split()) <= 12:
         return False
     return True
 
