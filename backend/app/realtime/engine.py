@@ -14,6 +14,7 @@ import time
 
 from sqlalchemy import func, select
 
+from ..advisor import meeting_context
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import SessionLocal
 from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment
@@ -70,6 +71,9 @@ async def process_utterance(
         db.add(seg)
         db.commit()
         seg_id = seg.id
+        seg_count = db.scalar(
+            select(func.count(TranscriptSegment.id)).where(TranscriptSegment.meeting_id == meeting_id)
+        ) or 0
 
         await manager.broadcast(
             meeting_id,
@@ -80,6 +84,11 @@ async def process_utterance(
         )
     finally:
         db.close()
+
+    # Keep the evolving meeting state fresh (every _REFRESH_EVERY segments, from EITHER speaker —
+    # decisions/actions come from the rep too). Detached so it never delays ingestion.
+    if meeting_context.should_refresh(seg_count):
+        _schedule(meeting_context.refresh(meeting_id))
 
     if role == "customer":
         _schedule(_run_agent_turn(meeting_id, seg_id, text))
@@ -190,9 +199,14 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
         # Tier 2 — deepen with the Claude agentic loop, then upgrade the card in place.
         if deep_will_run:
             t1 = time.perf_counter()
+            # Prepend the evolving meeting state so the answer reasons over the WHOLE meeting
+            # (decisions, open questions, entities), not just the last few lines.
+            mc = meeting_context.render(meeting)
+            convo = "\n".join(recent)
+            full_ctx = f"{mc}\n\n{convo}".strip() if mc else convo
             deep = await pack.deep_answer(
                 db=db, meeting=meeting, text=query, intent=intent_res, servers=servers,
-                context="\n".join(recent),
+                context=full_ctx,
             )
             deep_latency = int((time.perf_counter() - t1) * 1000)
             if deep:
