@@ -1,17 +1,13 @@
 """Tech Copilot Pack — for engineering/technical meetings.
 
-Same real-time substrate as Sales (triage → two-tier answer → summary) but with a
-technical persona and taxonomy. The deep agent uses the engineer's connected tools —
-Jira, GitHub, Notion, Drive, docs, WebSearch — and never CRM/LinkedIn.
+Same real-time substrate as Sales (triage → two-tier answer → summary) but with a technical
+persona and taxonomy. deep_answer + summarize are inherited from SalesPack: the advisor
+orchestrator derives the persona from this pack's key ("tech") and role-scopes the tools
+(Jira/GitHub in, CRM out) automatically.
 """
 from __future__ import annotations
 
-from ...advisor.profiles import advisory_preamble
-from ...advisor.roles import filter_servers_for_role
-from ...agent import claude_agent, claude_sdk
 from ...agent.intent import TECH_INTENT_DESCRIPTIONS
-from ...connectors import live_sources, manager
-from ...models import Organization, User
 from ..base import PackManifest
 from ..sales import SalesPack
 
@@ -30,30 +26,3 @@ class TechPack(SalesPack):
 
     def intent_descriptions(self) -> dict[str, str]:
         return TECH_INTENT_DESCRIPTIONS
-
-    async def deep_answer(self, *, db, meeting, text, intent, servers, context="") -> dict | None:
-        if claude_sdk.available():
-            # Tech copilot also reads the engineer's Drive + Gmail (in-process). LinkedIn is
-            # excluded inside run_turn for the tech persona; everything else is included.
-            # `context` = the recent conversation so the answer reflects the thread.
-            tk = await manager.inprocess_read_tokens(db, meeting.owner_user_id)
-            return await claude_sdk.run_turn(
-                text, intent.intent_type, meeting.crm_company_id, servers, persona="tech",
-                drive_token=tk["google_drive"], gmail_token=tk["gmail"], slack_token=tk["slack"],
-                context=context,
-            )
-        if claude_agent.available():
-            # Pull the engineer's Gmail/Drive/Slack content for this question (no hosted MCP to call)
-            # and hand it in alongside the remote tools (Jira/GitHub/Notion) so the live answer spans
-            # every source. read_bodies=False keeps the in-meeting latency low.
-            comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
-            user = db.get(User, meeting.owner_user_id) if meeting.owner_user_id else None
-            preamble = advisory_preamble(user, db.get(Organization, user.org_id) if user and user.org_id else None)
-            servers = filter_servers_for_role(user, servers)
-            if not servers and not comms:
-                return None
-            return await claude_agent.run_turn(
-                text, intent.intent_type, servers, persona="tech", context=context, comms=comms,
-                profile_context=preamble,
-            )
-        return None

@@ -5,15 +5,12 @@ Claude+MCP) behind the CopilotPack contract. Behavior is identical to pre-Phase-
 """
 from __future__ import annotations
 
+from ...advisor import orchestrator
 from ...agent import claude_agent, claude_sdk
 from ...agent.intent import INTENT_DESCRIPTIONS, IntentResult, detect_intent
 from ...agent.pipeline import pipeline
-from ...advisor.profiles import advisory_preamble
-from ...advisor.roles import filter_servers_for_role
 from ...agent.summary import generate_summary
-from ...connectors import live_sources, manager
 from ...integrations import hubspot
-from ...models import Organization, User
 from ..base import CopilotPack, PackManifest
 
 
@@ -57,33 +54,13 @@ class SalesPack(CopilotPack):
         }
 
     async def deep_answer(self, *, db, meeting, text, intent, servers, context="") -> dict | None:
-        if claude_sdk.available():
-            # Pass the owner's connected remote MCP servers (HubSpot/…) plus their Google
-            # Drive + Gmail tokens (read in-process — no hosted MCP), so the live copilot
-            # researches across EVERY connected source, permission-scoped. `context` = the recent
-            # conversation so the answer reflects the thread, not just the latest utterance.
-            tk = await manager.inprocess_read_tokens(db, meeting.owner_user_id)
-            return await claude_sdk.run_turn(
-                text, intent.intent_type, meeting.crm_company_id, servers,
-                drive_token=tk["google_drive"], gmail_token=tk["gmail"], slack_token=tk["slack"],
-                context=context,
-            )
-        if claude_agent.available():
-            # messages_mcp can't call Gmail/Drive/Slack (no hosted MCP) — pre-fetch their content
-            # for THIS question and hand it in, so the live answer reasons over every connected
-            # source. read_bodies=False keeps it snappy for the in-meeting SLA.
-            comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
-            # Advisory context (who we're advising + company) + role-aware source filtering.
-            user = db.get(User, meeting.owner_user_id) if meeting.owner_user_id else None
-            preamble = advisory_preamble(user, db.get(Organization, user.org_id) if user and user.org_id else None)
-            servers = filter_servers_for_role(user, servers)
-            if not servers and not comms:
-                return None
-            return await claude_agent.run_turn(
-                text, intent.intent_type, servers, persona="sales", context=context, comms=comms,
-                profile_context=preamble,
-            )
-        return None
+        # Thin adapter: the whole reasoning path (retrieval → advisory → envelope) lives in the
+        # advisor orchestrator. The pack only picks the persona (TechPack inherits this → "tech").
+        persona = "tech" if self.manifest.key == "tech" else "sales"
+        return await orchestrator.run(
+            db=db, meeting=meeting, text=text, intent=intent, servers=servers,
+            context=context, persona=persona,
+        )
 
     async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None, persona="sales", comms=None, profile_context="") -> dict:
         return await generate_summary(
