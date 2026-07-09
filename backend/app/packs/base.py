@@ -74,6 +74,7 @@ class CopilotPack:
         docs: list[dict] | None = None,
         persona: str = "sales",
         comms: list[dict] | None = None,
+        profile_context: str = "",
     ) -> dict:
         """Generate the post-meeting summary + follow-up artifacts, synthesizing the current
         transcript with prior meetings (`history`), account sources (`crm`, `docs`), and the

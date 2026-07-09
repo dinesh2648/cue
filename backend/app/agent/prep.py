@@ -109,7 +109,11 @@ _TECH_EXTRA = (
 def _context_block(ctx: dict, persona: str = "sales") -> str:
     """Render the internal context we gathered into a compact prompt block (persona-framed)."""
     is_tech = persona == "tech"
-    parts = [
+    parts: list[str] = []
+    preamble = (ctx.get("profile_context") or "").strip()
+    if preamble:  # always-on advisory context: who this brief is for + company + role
+        parts.append(preamble)
+    parts += [
         f"Event: {ctx.get('title', '')}",
         f"When: {ctx.get('start', '')}",
     ]

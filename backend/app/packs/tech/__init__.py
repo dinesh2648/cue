@@ -6,9 +6,12 @@ Jira, GitHub, Notion, Drive, docs, WebSearch — and never CRM/LinkedIn.
 """
 from __future__ import annotations
 
+from ...advisor.profiles import advisory_preamble
+from ...advisor.roles import filter_servers_for_role
 from ...agent import claude_agent, claude_sdk
 from ...agent.intent import TECH_INTENT_DESCRIPTIONS
 from ...connectors import live_sources, manager
+from ...models import Organization, User
 from ..base import PackManifest
 from ..sales import SalesPack
 
@@ -44,9 +47,13 @@ class TechPack(SalesPack):
             # and hand it in alongside the remote tools (Jira/GitHub/Notion) so the live answer spans
             # every source. read_bodies=False keeps the in-meeting latency low.
             comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
+            user = db.get(User, meeting.owner_user_id) if meeting.owner_user_id else None
+            preamble = advisory_preamble(user, db.get(Organization, user.org_id) if user and user.org_id else None)
+            servers = filter_servers_for_role(user, servers)
             if not servers and not comms:
                 return None
             return await claude_agent.run_turn(
                 text, intent.intent_type, servers, persona="tech", context=context, comms=comms,
+                profile_context=preamble,
             )
         return None

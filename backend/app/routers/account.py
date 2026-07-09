@@ -46,7 +46,50 @@ def me(user: User = Depends(get_current_user)) -> dict:
     return {
         "id": user.id, "email": user.email, "name": user.name,
         "org_id": user.org_id, "role": user.role, "autopilot": user.autopilot,
+        "team": user.team, "profile": user.profile or {}, "custom_context": user.custom_context or "",
     }
+
+
+class ProfileUpdate(BaseModel):
+    # Personal advisory context. All optional — send only what changed.
+    team: str | None = None            # department: sales|tech|ops|finance|hr|marketing|cs
+    designation: str | None = None
+    manager_name: str | None = None
+    location: str | None = None
+    timezone: str | None = None
+    focus: str | None = None
+    responsibilities: list[str] | None = None
+    decision_authority: list[str] | None = None
+    working_style: list[str] | None = None
+    preferred_output: list[str] | None = None
+    custom_context: str | None = None
+
+
+@router.post("/me/profile")
+def set_profile(
+    body: ProfileUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """Update the signed-in employee's advisory profile — injected into every AI request."""
+    from ..advisor.roles import DEPARTMENTS
+
+    if body.team is not None:
+        t = body.team.strip().lower()
+        user.team = t if t in DEPARTMENTS else user.team
+    if body.custom_context is not None:
+        user.custom_context = body.custom_context[:2000]
+    prof = dict(user.profile or {})
+    for field in ("designation", "manager_name", "location", "timezone", "focus"):
+        v = getattr(body, field)
+        if v is not None:
+            prof[field] = v.strip()[:200]
+    for field in ("responsibilities", "decision_authority", "working_style", "preferred_output"):
+        v = getattr(body, field)
+        if v is not None:
+            prof[field] = [str(x).strip()[:120] for x in v if str(x).strip()][:12]
+    user.profile = prof
+    db.add(user)
+    db.commit()
+    return {"team": user.team, "profile": user.profile, "custom_context": user.custom_context}
 
 
 class AutopilotRequest(BaseModel):
@@ -90,9 +133,59 @@ def org(
     }
 
 
+@router.get("/org/profile")
+def get_org_profile(
+    organization: Organization = Depends(get_current_org), user: User = Depends(get_current_user)
+) -> dict:
+    """The company advisory profile — injected into every AI request for all employees."""
+    return {
+        "name": organization.name,
+        "description": organization.description or "",
+        "profile": organization.profile or {},
+        "can_manage": user.role in ("owner", "admin"),
+    }
+
+
+class CompanyProfileUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    industry: str | None = None
+    locations: list[str] | None = None
+    products: list[str] | None = None
+    tech_stack: list[str] | None = None
+    priorities: list[str] | None = None
+
+
+@router.post("/org/profile")
+def set_org_profile(
+    body: CompanyProfileUpdate,
+    db: Session = Depends(get_db),
+    organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Update the company profile (owner/admin only)."""
+    if user.role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only an owner or admin can edit the company profile.")
+    if body.name is not None and body.name.strip():
+        organization.name = body.name.strip()[:255]
+    if body.description is not None:
+        organization.description = body.description[:2000]
+    prof = dict(organization.profile or {})
+    if body.industry is not None:
+        prof["industry"] = body.industry.strip()[:200]
+    for field in ("locations", "products", "tech_stack", "priorities"):
+        v = getattr(body, field)
+        if v is not None:
+            prof[field] = [str(x).strip()[:120] for x in v if str(x).strip()][:20]
+    organization.profile = prof
+    db.add(organization)
+    db.commit()
+    return {"name": organization.name, "description": organization.description, "profile": organization.profile}
+
+
 class MemberUpdate(BaseModel):
     role: str | None = None       # member | manager | admin
-    team: str | None = None       # sales | tech | ops
+    team: str | None = None       # department: sales|tech|ops|finance|hr|marketing|cs
     manager_id: str | None = None  # "" / None clears it
 
 

@@ -36,6 +36,12 @@ class Meeting(Base):
     org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)  # tenant (for usage/billing)
     pack: Mapped[str] = mapped_column(String(32), default="sales")  # which Copilot Pack drives this meeting
     attendees: Mapped[list] = mapped_column(JSON, default=list)  # attendee emails — for shared-meeting visibility
+    # Evolving meeting state (Meeting Context Manager) — refreshed as the transcript grows so every
+    # answer/insight reasons over the WHOLE meeting, not just the latest line.
+    # context_json: {current_topic, previous_topics[], open_questions[], decisions[], risks[],
+    #   action_items[], entities:{customers[],projects[],tickets[],documents[],opportunities[]}, updated_seg}
+    running_summary: Mapped[str] = mapped_column(Text, default="")
+    context_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -213,6 +219,10 @@ class Organization(Base):
     seats: Mapped[int] = mapped_column(Integer, default=1)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Company advisory context — injected into EVERY AI request so answers fit the business.
+    # profile: {industry, locations[], products[], tech_stack[], priorities[]}
+    description: Mapped[str] = mapped_column(Text, default="")  # free-text about the company
+    profile: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -226,9 +236,14 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), default="")
     org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=True)
     role: Mapped[str] = mapped_column(String(32), default="owner")  # owner|admin|manager|member
-    team: Mapped[str] = mapped_column(String(16), default="sales")  # sales|tech|ops → which Copilot Pack
+    team: Mapped[str] = mapped_column(String(24), default="sales")  # department: sales|tech|ops|finance|hr|marketing|cs
     manager_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     autopilot: Mapped[bool] = mapped_column(default=False)  # auto-join + auto-summarize my meetings
+    # Personal advisory context — injected into EVERY AI request so the advisor knows who it's for.
+    # profile: {designation, responsibilities[], decision_authority[], working_style[],
+    #           preferred_output[], focus, timezone, location, manager_name}
+    profile: Mapped[dict] = mapped_column(JSON, default=dict)
+    custom_context: Mapped[str] = mapped_column(Text, default="")  # free-text the employee writes about themselves
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

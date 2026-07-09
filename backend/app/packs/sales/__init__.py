@@ -8,9 +8,12 @@ from __future__ import annotations
 from ...agent import claude_agent, claude_sdk
 from ...agent.intent import INTENT_DESCRIPTIONS, IntentResult, detect_intent
 from ...agent.pipeline import pipeline
+from ...advisor.profiles import advisory_preamble
+from ...advisor.roles import filter_servers_for_role
 from ...agent.summary import generate_summary
 from ...connectors import live_sources, manager
 from ...integrations import hubspot
+from ...models import Organization, User
 from ..base import CopilotPack, PackManifest
 
 
@@ -70,15 +73,21 @@ class SalesPack(CopilotPack):
             # for THIS question and hand it in, so the live answer reasons over every connected
             # source. read_bodies=False keeps it snappy for the in-meeting SLA.
             comms = await live_sources.gather_comms(db, meeting.owner_user_id, text, read_bodies=False)
+            # Advisory context (who we're advising + company) + role-aware source filtering.
+            user = db.get(User, meeting.owner_user_id) if meeting.owner_user_id else None
+            preamble = advisory_preamble(user, db.get(Organization, user.org_id) if user and user.org_id else None)
+            servers = filter_servers_for_role(user, servers)
             if not servers and not comms:
                 return None
             return await claude_agent.run_turn(
                 text, intent.intent_type, servers, persona="sales", context=context, comms=comms,
+                profile_context=preamble,
             )
         return None
 
-    async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None, persona="sales", comms=None) -> dict:
+    async def summarize(self, *, meeting, intents, suggestions, crm, transcript, history=None, docs=None, persona="sales", comms=None, profile_context="") -> dict:
         return await generate_summary(
             meeting=meeting, intents=intents, suggestions=suggestions, crm=crm,
             transcript=transcript, history=history, docs=docs, persona=persona, comms=comms,
+            profile_context=profile_context,
         )

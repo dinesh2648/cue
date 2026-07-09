@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .actions import service as action_service
+from .advisor.profiles import load_preamble
 from .agent import coaching, planner
 from .connectors import live_sources
 from .integrations import hubspot
@@ -95,6 +96,7 @@ async def finalize_meeting(db: Session, meeting: Meeting, *, with_scorecard: boo
         intents=[{"intent_type": i.intent_type} for i in intent_rows],
         suggestions=[{"actions": s.actions, "answer": s.answer} for s in suggestion_rows],
         crm=crm, transcript=transcript_text, history=history, docs=docs, persona=persona, comms=comms,
+        profile_context=load_preamble(db, meeting.owner_user_id),
     )
 
     summary = db.scalar(select(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id)) or MeetingSummary(meeting_id=meeting_id)

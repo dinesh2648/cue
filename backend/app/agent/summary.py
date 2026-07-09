@@ -183,12 +183,15 @@ def _history_brief(history: list[dict]) -> str:
     return "\n".join(out)
 
 
-def _build_context(meeting, intents, suggestions, crm, transcript, history, docs, comms) -> str:
+def _build_context(meeting, intents, suggestions, crm, transcript, history, docs, comms, profile_context="") -> str:
     topics = sorted({i["intent_type"] for i in intents if i.get("intent_type") and i["intent_type"] != "general"})
     answers = [s.get("answer", "") for s in suggestions if s.get("answer")]
     docs_block = "\n".join(f"  • {d.get('title')}: {(d.get('snippet') or '')[:160]}" for d in docs) or "  (none)"
     comms_block = format_comms(comms or [], max_chars=4000)
+    preamble = (profile_context or "").strip()
     return (
+        (preamble + "\n\n" if preamble else "")
+        +
         f"CLIENT: {meeting.get('customer_company', 'Unknown')}"
         f" | Contact: {meeting.get('customer_contact', '—')}"
         f" | Rep: {meeting.get('rep_name', '—')}\n\n"
@@ -221,16 +224,18 @@ async def generate_summary(
     docs: list[dict] | None = None,
     persona: str = "sales",
     comms: list[dict] | None = None,
+    profile_context: str = "",
 ) -> dict:
     """Synthesize the post-meeting brief from the current transcript, prior meetings with the
     same client, the CRM snapshot, enterprise docs, and the owner's live Gmail/Drive/Slack
     content (`comms`). Heuristic baseline is the fallback.
-    `persona` ('tech'|'sales') sets whether the brief is engineering- or sales-framed."""
+    `persona` ('tech'|'sales') sets whether the brief is engineering- or sales-framed.
+    `profile_context` = the always-on advisory preamble (who the brief is for + company)."""
     base = _heuristic(meeting, intents, suggestions, crm)
 
     raw = await llm_complete(
         system=_SUMMARY_SYSTEM_TECH if persona == "tech" else _SUMMARY_SYSTEM,
-        user=_build_context(meeting, intents, suggestions, crm, transcript, history or [], docs or [], comms or []),
+        user=_build_context(meeting, intents, suggestions, crm, transcript, history or [], docs or [], comms or [], profile_context),
         max_tokens=1800,
         temperature=0.3,
         timeout=60.0,  # large structured generation — well above the default 20s

@@ -13,11 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .agent import prep
+from .advisor.profiles import advisory_preamble
 from .connectors import live_sources
 from .connectors.manager import active_mcp_servers, get_access_token
 from .integrations import hubspot
 from .knowledge.store import index
-from .models import Meeting, MeetingPrep, MeetingSummary, User
+from .models import Meeting, MeetingPrep, MeetingSummary, Organization, User
 
 log = logging.getLogger("copilot.prep_ops")
 
@@ -190,6 +191,8 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         "history": history,
         "docs": docs,
         "comms": comms,
+        # Always-on advisory context: who this brief is for (role, focus, style) + company profile.
+        "profile_context": advisory_preamble(user, db.get(Organization, user.org_id) if user.org_id else None),
     }
     result = await prep.generate_prep(
         ctx, persona=_persona(user), servers=servers,

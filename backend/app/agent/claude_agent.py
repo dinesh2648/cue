@@ -78,6 +78,7 @@ async def run_turn(
     persona: str = "sales",
     context: str = "",
     comms: list[dict] | None = None,
+    profile_context: str = "",
 ) -> dict | None:
     """Answer one question using the user's live MCP tools. None on fallback.
 
@@ -85,6 +86,9 @@ async def run_turn(
     no hosted MCP the model can call itself. They're injected into the prompt so the answer reasons
     over EVERY connected source (not just remote-MCP ones), AND credited in the returned sources —
     the parser only sees MCP tool calls, so without this they'd be invisible in the answer.
+
+    `profile_context` = the always-on advisory preamble (who we're advising + company + role) so the
+    answer is tailored to this employee and never produced in isolation.
     """
     if not available():
         return None
@@ -128,10 +132,13 @@ async def run_turn(
     user_msg = "\n\n".join(parts)
 
     try:
+        system = _system(persona)
+        if profile_context:
+            system += "\n\n" + profile_context
         kwargs: dict = {
             "model": settings.anthropic_model,
             "max_tokens": 600,
-            "system": _system(persona),
+            "system": system,
             "messages": [{"role": "user", "content": user_msg}],
         }
         if servers_payload:
