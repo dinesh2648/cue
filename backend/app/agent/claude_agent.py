@@ -63,8 +63,17 @@ _TOOL_RULES = (
 )
 
 
+# Grounding guardrail — "nothing outside context". Keeps the advisor safe + honest.
+_GUARDRAIL = (
+    " Ground every factual claim strictly in the connected tools, the provided excerpts, or the "
+    "meeting context. If those don't contain the answer, say you don't have it and what you'd check "
+    "next — never fill the gap with assumptions or general knowledge presented as fact. Do not infer "
+    "people, numbers, dates or commitments that aren't supported."
+)
+
+
 def _system(persona: str) -> str:
-    return (_SYSTEM_TECH if persona == "tech" else _SYSTEM_SALES) + _TOOL_RULES
+    return (_SYSTEM_TECH if persona == "tech" else _SYSTEM_SALES) + _TOOL_RULES + _GUARDRAIL
 
 
 def available() -> bool:

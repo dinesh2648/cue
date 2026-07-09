@@ -141,8 +141,8 @@ export const api = {
     }),
   disconnect: (provider: string) => request<{ ok: boolean }>(`/api/connectors/${provider}/disconnect`, { method: "POST" }),
 
-  ask: (query: string, context = "") =>
-    request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context }) }),
+  ask: (query: string, context = "", meeting_id?: string) =>
+    request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id }) }),
 };
 
 export async function meetingSocket(id: string): Promise<WebSocket> {

@@ -19,9 +19,9 @@ from sqlalchemy.orm import Session
 from ..connectors import live_sources
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import get_db
-from ..models import KnowledgeDoc, User
+from ..models import KnowledgeDoc, Meeting, TranscriptSegment, User
 from ..packs.registry import get_pack, pack_for_team
-from ..security.auth import get_current_user
+from ..security.auth import get_current_user, visible_user_ids
 
 log = logging.getLogger("copilot.ask")
 router = APIRouter(prefix="/api/ask", tags=["ask"])
@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/ask", tags=["ask"])
 class AskRequest(BaseModel):
     query: str
     context: str = ""  # optional prior turns, so follow-ups resolve ("what about that repo?")
+    meeting_id: str | None = None  # live in-meeting Ask — grounds the answer in the meeting
 
 
 def _doc_catalog(db: Session) -> list[dict]:
@@ -59,8 +60,27 @@ async def ask(
     recent = [ln for ln in (body.context or "").splitlines() if ln.strip()] or None
     intent = await pack.classify(query, recent)
 
-    # A meeting-less context: the current user is the "owner"; no CRM company bound.
-    ctx = SimpleNamespace(owner_user_id=user.id, crm_company_id=None, id=None, pack=pack.manifest.key)
+    # Retrieval always runs as the CURRENT user (their tools). For an in-meeting Ask we also attach
+    # the meeting's evolving state + recent transcript so "what did we decide?" is grounded.
+    ctx = SimpleNamespace(owner_user_id=user.id, crm_company_id=None, id=None, pack=pack.manifest.key,
+                          running_summary="", context_json={})
+    extra_context = body.context or ""
+    if body.meeting_id:
+        meeting = db.get(Meeting, body.meeting_id)
+        if meeting is not None and (
+            meeting.owner_user_id in visible_user_ids(db, user)
+            or (user.email and user.email in (meeting.attendees or []))
+        ):
+            ctx.crm_company_id = meeting.crm_company_id
+            ctx.running_summary = meeting.running_summary or ""
+            ctx.context_json = meeting.context_json or {}
+            segs = list(db.scalars(
+                select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)
+                .order_by(TranscriptSegment.ts.desc()).limit(14)
+            ))
+            if segs:
+                convo = "\n".join(f"{s.speaker} ({s.role}): {s.text}" for s in reversed(segs))
+                extra_context = (f"Recent meeting transcript:\n{convo}\n\n{extra_context}").strip()
     servers = await active_mcp_servers(db, user.id)
     inproc = await inprocess_read_tokens(db, user.id)
 
@@ -79,7 +99,7 @@ async def ask(
         try:
             deep = await pack.deep_answer(
                 db=db, meeting=ctx, text=query, intent=intent,
-                servers=servers, context=body.context or "",
+                servers=servers, context=extra_context,
             )
         except Exception as exc:
             log.warning("ask deep_answer failed: %s", exc)

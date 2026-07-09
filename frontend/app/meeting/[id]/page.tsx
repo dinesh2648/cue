@@ -7,6 +7,7 @@ import { api, meetingSocket } from "@/lib/api";
 import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Action, MeetingPrepRecord, Insight } from "@/lib/types";
 import SuggestionCard from "@/components/SuggestionCard";
 import InsightsPanel from "@/components/InsightsPanel";
+import MeetingAsk from "@/components/MeetingAsk";
 import SummaryPanel from "@/components/SummaryPanel";
 import ApprovalsPanel from "@/components/ApprovalsPanel";
 import ScorecardPanel from "@/components/ScorecardPanel";
@@ -296,6 +297,7 @@ export default function MeetingConsole() {
             <span className="pill">{suggestions.length}</span>
           </div>
           <div className="panel-body suggest-body" ref={suggestRef}>
+            <MeetingAsk meetingId={id} />
             <InsightsPanel insights={insights} />
             {suggestions.length === 0 ? (
               <div className="empty">
