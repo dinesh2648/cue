@@ -268,6 +268,22 @@ def suggestions(meeting_id: str, user: User = Depends(get_current_user), db: Ses
     )
 
 
+@router.get("/{meeting_id}/insights")
+def meeting_insights(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Proactive insights + the evolving meeting state, for a (re)loading live meeting view."""
+    meeting = _authorized(db, meeting_id, user)
+    ctx = (getattr(meeting, "context_json", None) or {})
+    return {
+        "insights": ctx.get("insights", []),
+        "running_summary": getattr(meeting, "running_summary", "") or "",
+        "current_topic": ctx.get("current_topic", ""),
+        "open_questions": ctx.get("open_questions", []),
+        "decisions": ctx.get("decisions", []),
+        "action_items": ctx.get("action_items", []),
+        "risks": ctx.get("risks", []),
+    }
+
+
 @router.get("/{meeting_id}/crm-sync", response_model=list[CRMSyncOut])
 def crm_sync(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CRMSyncRecord]:
     _authorized(db, meeting_id, user)

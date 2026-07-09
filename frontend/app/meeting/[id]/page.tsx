@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api, meetingSocket } from "@/lib/api";
-import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Action, MeetingPrepRecord } from "@/lib/types";
+import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Action, MeetingPrepRecord, Insight } from "@/lib/types";
 import SuggestionCard from "@/components/SuggestionCard";
+import InsightsPanel from "@/components/InsightsPanel";
 import SummaryPanel from "@/components/SummaryPanel";
 import ApprovalsPanel from "@/components/ApprovalsPanel";
 import ScorecardPanel from "@/components/ScorecardPanel";
@@ -27,6 +28,7 @@ export default function MeetingConsole() {
   const [recBusy, setRecBusy] = useState(false);
   const [prep, setPrep] = useState<MeetingPrepRecord | null>(null);
   const [prepOpen, setPrepOpen] = useState(false);
+  const [insights, setInsights] = useState<Insight[]>([]);
 
   const flash = (m: string) => {
     setToast(m);
@@ -82,6 +84,7 @@ export default function MeetingConsole() {
       setSuggestions(s);
       api.listActions(id).then((acts) => alive && setActions(acts)).catch(() => {});
       api.meetingPrepRecord(id).then((p) => alive && p.found && setPrep(p)).catch(() => {});
+      api.meetingInsights(id).then((r) => alive && setInsights(r.insights || [])).catch(() => {});
       if (m.status === "ended") {
         api.summary(id).then(setSummary).catch(() => {});
       }
@@ -115,6 +118,9 @@ export default function MeetingConsole() {
             break;
           case "summary":
             setSummary(msg.data);
+            break;
+          case "insights":
+            setInsights(msg.data);
             break;
           case "error":
             setToast(msg.data.message);
@@ -290,6 +296,7 @@ export default function MeetingConsole() {
             <span className="pill">{suggestions.length}</span>
           </div>
           <div className="panel-body suggest-body" ref={suggestRef}>
+            <InsightsPanel insights={insights} />
             {suggestions.length === 0 ? (
               <div className="empty">
                 When the customer asks something, the copilot&apos;s grounded answer will appear

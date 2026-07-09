@@ -169,6 +169,21 @@ button { font-family: inherit; cursor: pointer; }
 .env-list.warn li::before { content: "⚠"; color: #e0a33e; font-size: 10px; top: 1px; }
 .env-list.muted li { color: var(--faint); }
 .env-list.muted li::before { content: "◇"; color: var(--faint); font-size: 10px; }
+/* Proactive insights panel (live, dismissible) */
+.insights-panel { margin-bottom: 14px; border: 1px solid var(--accent); border-radius: 12px; overflow: hidden; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.insights-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12.5px; font-weight: 700; color: var(--text); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.insights-count { margin-left: auto; font-size: 11px; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; }
+.insights-list { display: flex; flex-direction: column; gap: 1px; }
+.insight-card { display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px; background: var(--card); }
+.insight-card.sev-high { box-shadow: inset 3px 0 0 #e5484d; }
+.insight-card.sev-warn { box-shadow: inset 3px 0 0 #e0a33e; }
+.insight-card.sev-info { box-shadow: inset 3px 0 0 var(--accent); }
+.insight-ic { font-size: 14px; line-height: 1.4; }
+.insight-body { flex: 1; min-width: 0; }
+.insight-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--faint); font-weight: 700; }
+.insight-text { font-size: 12.7px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+.insight-dismiss { border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 6px; }
+.insight-dismiss:hover { background: var(--bg-2); color: var(--text); }
 .sources { display: flex; flex-wrap: wrap; gap: 7px; }
 .source-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; font-size: 12px; background: var(--bg-2); border: 1px solid var(--border); color: var(--muted); }
 .source-chip .ic { font-size: 12px; }

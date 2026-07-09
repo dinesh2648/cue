@@ -301,6 +301,12 @@ export interface OrgProfile {
   can_manage: boolean;
 }
 
+export interface Insight {
+  type: string;      // decision_without_owner | unassigned_action | open_question | risk | contradiction | deadline | missing_stakeholder | follow_up
+  severity: "info" | "warn" | "high";
+  text: string;
+}
+
 export type WSEvent =
   | { type: "transcript"; data: Segment }
   | { type: "intent"; data: { intent_type: string; family: string; confidence: number; query_text: string; actionable: boolean } }
@@ -309,6 +315,7 @@ export type WSEvent =
   | { type: "status"; data: { status: string } }
   | { type: "summary"; data: Summary }
   | { type: "crm_sync"; data: { synced: boolean } }
+  | { type: "insights"; data: Insight[] }
   | { type: "error"; data: { message: string } };
 
 export interface AskResult {

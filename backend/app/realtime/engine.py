@@ -14,7 +14,7 @@ import time
 
 from sqlalchemy import func, select
 
-from ..advisor import meeting_context
+from ..advisor import insights, meeting_context
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import SessionLocal
 from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment
@@ -86,12 +86,21 @@ async def process_utterance(
         db.close()
 
     # Keep the evolving meeting state fresh (every _REFRESH_EVERY segments, from EITHER speaker —
-    # decisions/actions come from the rep too). Detached so it never delays ingestion.
+    # decisions/actions come from the rep too), then surface proactive insights. Detached so it
+    # never delays ingestion.
     if meeting_context.should_refresh(seg_count):
-        _schedule(meeting_context.refresh(meeting_id))
+        _schedule(_update_context_and_insights(meeting_id))
 
     if role == "customer":
         _schedule(_run_agent_turn(meeting_id, seg_id, text))
+
+
+async def _update_context_and_insights(meeting_id: str) -> None:
+    """Refresh the evolving meeting state, then compute + broadcast proactive insights."""
+    await meeting_context.refresh(meeting_id)
+    items = await insights.detect(meeting_id)
+    if items:
+        await manager.broadcast(meeting_id, {"type": "insights", "data": items})
 
 
 async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:

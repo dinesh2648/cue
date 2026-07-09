@@ -113,8 +113,9 @@ async def refresh(meeting_id: str) -> None:
         except (ValueError, json.JSONDecodeError):
             return
         meeting.running_summary = (data.get("running_summary") or meeting.running_summary or "")[:2000]
-        prev = meeting.context_json or {}
-        meeting.context_json = {k: (data.get(k) if data.get(k) is not None else prev.get(k)) for k in _STATE_KEYS}
+        prev = dict(meeting.context_json or {})  # preserve non-state keys (e.g. insights) across refreshes
+        prev.update({k: (data.get(k) if data.get(k) is not None else prev.get(k)) for k in _STATE_KEYS})
+        meeting.context_json = prev
         db.add(meeting)
         db.commit()
         ctx = meeting.context_json
