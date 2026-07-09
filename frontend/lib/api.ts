@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -54,9 +54,20 @@ export const api = {
     request<{ dev_mode: boolean; auth_mode: string; google_login_url: string | null; agent_engine: string; llm_provider: string; recall_enabled: boolean }>(
       "/api/auth/config"
     ),
-  me: () => request<{ id: string; email: string; name: string; org_id: string | null; role?: string; autopilot?: boolean }>("/api/me"),
+  me: () => request<MeInfo>("/api/me"),
   setAutopilot: (enabled: boolean) =>
     request<{ autopilot: boolean }>("/api/me/autopilot", { method: "POST", body: JSON.stringify({ enabled }) }),
+  setProfile: (patch: Partial<UserProfile> & { team?: string; custom_context?: string }) =>
+    request<{ team: string; profile: UserProfile; custom_context: string }>("/api/me/profile", {
+      method: "POST",
+      body: JSON.stringify(patch),
+    }),
+  orgProfile: () => request<OrgProfile>("/api/org/profile"),
+  setOrgProfile: (patch: Partial<CompanyProfile> & { name?: string; description?: string }) =>
+    request<{ name: string; description: string; profile: CompanyProfile }>("/api/org/profile", {
+      method: "POST",
+      body: JSON.stringify(patch),
+    }),
 
   createDemo: () => request<Meeting>("/api/meetings/demo", { method: "POST" }),
   joinLive: (meeting_url: string, fields: Partial<{ title: string; customer_company: string; customer_contact: string }> = {}) =>

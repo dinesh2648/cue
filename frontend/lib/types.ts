@@ -258,6 +258,43 @@ export interface OrgInfo {
   members: OrgMember[];
 }
 
+// Advisory context — the employee's personal profile (injected into every AI request).
+export interface UserProfile {
+  designation?: string;
+  manager_name?: string;
+  location?: string;
+  timezone?: string;
+  focus?: string;
+  responsibilities?: string[];
+  decision_authority?: string[];
+  working_style?: string[];
+  preferred_output?: string[];
+}
+export interface MeInfo {
+  id: string;
+  email: string;
+  name: string;
+  org_id: string | null;
+  role?: string;
+  autopilot?: boolean;
+  team?: string;
+  profile?: UserProfile;
+  custom_context?: string;
+}
+export interface CompanyProfile {
+  industry?: string;
+  locations?: string[];
+  products?: string[];
+  tech_stack?: string[];
+  priorities?: string[];
+}
+export interface OrgProfile {
+  name: string;
+  description: string;
+  profile: CompanyProfile;
+  can_manage: boolean;
+}
+
 export type WSEvent =
   | { type: "transcript"; data: Segment }
   | { type: "intent"; data: { intent_type: string; family: string; confidence: number; query_text: string; actionable: boolean } }

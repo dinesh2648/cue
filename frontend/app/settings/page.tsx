@@ -8,18 +8,99 @@ const lim = (v: number | null) => (v == null ? "∞" : v);
 const pct = (used: number, limit: number | null) =>
   limit == null ? 8 : Math.min(100, Math.round((100 * used) / limit));
 
+const DEPARTMENTS: [string, string][] = [
+  ["sales", "🟦 Sales"], ["tech", "🟩 Engineering"], ["ops", "⬜ Operations"],
+  ["finance", "💰 Finance"], ["hr", "👥 People / HR"], ["marketing", "📣 Marketing"], ["cs", "🎧 Customer Success"],
+];
+const splitList = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+const emptyProfile = {
+  team: "sales", designation: "", manager_name: "", location: "", timezone: "", focus: "",
+  responsibilities: "", decision_authority: "", working_style: "", preferred_output: "", custom_context: "",
+};
+const emptyCompany = { name: "", description: "", industry: "", locations: "", products: "", tech_stack: "", priorities: "" };
+const inputStyle: React.CSSProperties = {
+  width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)",
+  background: "var(--card2, transparent)", color: "inherit", fontSize: 13.5,
+};
+
+function Label({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+      {children}{hint && <span style={{ color: "var(--faint)", fontWeight: 400 }}> · {hint}</span>}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [billing, setBilling] = useState<BillingInfo | null>(null);
   const [org, setOrg] = useState<OrgInfo | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [autopilot, setAutopilot] = useState<boolean | null>(null);
+  const [prof, setProf] = useState({ ...emptyProfile });
+  const [company, setCompany] = useState({ ...emptyCompany });
+  const [canManageCompany, setCanManageCompany] = useState(false);
 
   const load = useCallback(() => {
     api.billing().then(setBilling).catch(() => {});
     api.org().then(setOrg).catch(() => {});
-    api.me().then((m) => setAutopilot(!!m.autopilot)).catch(() => {});
+    api.me().then((m) => {
+      setAutopilot(!!m.autopilot);
+      const p = m.profile || {};
+      setProf({
+        team: m.team || "sales", designation: p.designation || "", manager_name: p.manager_name || "",
+        location: p.location || "", timezone: p.timezone || "", focus: p.focus || "",
+        responsibilities: (p.responsibilities || []).join(", "), decision_authority: (p.decision_authority || []).join(", "),
+        working_style: (p.working_style || []).join(", "), preferred_output: (p.preferred_output || []).join(", "),
+        custom_context: m.custom_context || "",
+      });
+    }).catch(() => {});
+    api.orgProfile().then((o) => {
+      setCanManageCompany(o.can_manage);
+      const p = o.profile || {};
+      setCompany({
+        name: o.name || "", description: o.description || "", industry: p.industry || "",
+        locations: (p.locations || []).join(", "), products: (p.products || []).join(", "),
+        tech_stack: (p.tech_stack || []).join(", "), priorities: (p.priorities || []).join(", "),
+      });
+    }).catch(() => {});
   }, []);
+
+  const saveProfile = async () => {
+    setBusy("profile");
+    try {
+      await api.setProfile({
+        team: prof.team, designation: prof.designation, manager_name: prof.manager_name,
+        location: prof.location, timezone: prof.timezone, focus: prof.focus,
+        responsibilities: splitList(prof.responsibilities), decision_authority: splitList(prof.decision_authority),
+        working_style: splitList(prof.working_style), preferred_output: splitList(prof.preferred_output),
+        custom_context: prof.custom_context,
+      });
+      setToast("✓ Profile saved — the advisor now tailors to your role");
+    } catch {
+      setToast("Couldn't save profile.");
+    } finally {
+      setBusy(null);
+      setTimeout(() => setToast(null), 2800);
+    }
+  };
+
+  const saveCompany = async () => {
+    setBusy("company");
+    try {
+      await api.setOrgProfile({
+        name: company.name, description: company.description, industry: company.industry,
+        locations: splitList(company.locations), products: splitList(company.products),
+        tech_stack: splitList(company.tech_stack), priorities: splitList(company.priorities),
+      });
+      setToast("✓ Company profile saved");
+    } catch {
+      setToast("Couldn't save — owner/admin only.");
+    } finally {
+      setBusy(null);
+      setTimeout(() => setToast(null), 2800);
+    }
+  };
 
   const updateMember = async (id: string, patch: { role?: string; team?: string; manager_id?: string | null }) => {
     try {
@@ -87,6 +168,8 @@ export default function SettingsPage() {
   };
 
   const u = billing?.usage;
+  const pf = (k: keyof typeof prof) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setProf({ ...prof, [k]: e.target.value });
+  const cf = (k: keyof typeof company) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setCompany({ ...company, [k]: e.target.value });
 
   return (
     <main className="container">
@@ -120,6 +203,78 @@ export default function SettingsPage() {
             needs to be <b>admitted</b> from the meeting waiting room.
           </div>
         )}
+      </div>
+
+      {/* Your advisory profile — injected into every AI request */}
+      <div className="card pad" style={{ marginBottom: 22 }}>
+        <div className="section-title" style={{ marginBottom: 4 }}>🧑‍💼 Your advisory profile</div>
+        <p style={{ color: "var(--muted)", fontSize: 13.5, lineHeight: 1.6, marginTop: 0, marginBottom: 16 }}>
+          The advisor uses this on <b>every</b> prep note, live answer and summary — so responses fit your
+          role, decision authority and preferred style. Your <b>department</b> also decides which tools it
+          uses (e.g. Jira/GitHub for Engineering, CRM for customer-facing roles).
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+          <div>
+            <Label>Department</Label>
+            <select className="member-select" style={{ width: "100%" }} value={prof.team} onChange={pf("team")}>
+              {DEPARTMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+          <div><Label>Designation</Label><input style={inputStyle} value={prof.designation} onChange={pf("designation")} placeholder="Head of Technology" /></div>
+          <div><Label>Reports to</Label><input style={inputStyle} value={prof.manager_name} onChange={pf("manager_name")} placeholder="Manager name" /></div>
+          <div><Label>Location</Label><input style={inputStyle} value={prof.location} onChange={pf("location")} placeholder="Dubai, UAE" /></div>
+          <div><Label>Timezone</Label><input style={inputStyle} value={prof.timezone} onChange={pf("timezone")} placeholder="GST (UTC+4)" /></div>
+          <div><Label>Focus</Label><input style={inputStyle} value={prof.focus} onChange={pf("focus")} placeholder="scalability, security, delivery" /></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginTop: 14 }}>
+          <div><Label hint="comma-separated">Responsibilities</Label><input style={inputStyle} value={prof.responsibilities} onChange={pf("responsibilities")} placeholder="roadmap, architecture, hiring" /></div>
+          <div><Label hint="comma-separated">Decision authority</Label><input style={inputStyle} value={prof.decision_authority} onChange={pf("decision_authority")} placeholder="architecture, vendor selection" /></div>
+          <div><Label hint="comma-separated">Working style</Label><input style={inputStyle} value={prof.working_style} onChange={pf("working_style")} placeholder="executive summaries, risk-first" /></div>
+          <div><Label hint="comma-separated">Preferred output</Label><input style={inputStyle} value={prof.preferred_output} onChange={pf("preferred_output")} placeholder="bullet points, concise" /></div>
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <Label hint="free text, in your own words">More about you</Label>
+          <textarea style={{ ...inputStyle, minHeight: 74, resize: "vertical" }} value={prof.custom_context} onChange={pf("custom_context")}
+            placeholder="I represent engineering in customer architecture calls. I prefer concise, technical explanations focused on scalability and security." />
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <button className="btn primary sm" disabled={busy === "profile"} onClick={saveProfile}>
+            {busy === "profile" ? "Saving…" : "Save profile"}
+          </button>
+        </div>
+      </div>
+
+      {/* Company profile — one per workspace, injected into every request */}
+      <div className="card pad" style={{ marginBottom: 22 }}>
+        <div className="section-title" style={{ marginBottom: 4 }}>🏢 Company profile</div>
+        <p style={{ color: "var(--muted)", fontSize: 13.5, lineHeight: 1.6, marginTop: 0, marginBottom: 16 }}>
+          Shared context about your business — added to every employee&apos;s AI requests so answers fit the
+          company. {canManageCompany ? "You can edit this (owner/admin)." : "Only an owner or admin can edit this."}
+        </p>
+        <fieldset disabled={!canManageCompany} style={{ border: 0, padding: 0, margin: 0, opacity: canManageCompany ? 1 : 0.7 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+            <div><Label>Company name</Label><input style={inputStyle} value={company.name} onChange={cf("name")} placeholder="AstroLabs" /></div>
+            <div><Label>Industry</Label><input style={inputStyle} value={company.industry} onChange={cf("industry")} placeholder="Business setup / gov-tech platform" /></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginTop: 14 }}>
+            <div><Label hint="comma-separated">Locations</Label><input style={inputStyle} value={company.locations} onChange={cf("locations")} placeholder="UAE, Saudi Arabia" /></div>
+            <div><Label hint="comma-separated">Core products</Label><input style={inputStyle} value={company.products} onChange={cf("products")} placeholder="Business Setup Platform, Gov Integrations" /></div>
+            <div><Label hint="comma-separated">Tech stack</Label><input style={inputStyle} value={company.tech_stack} onChange={cf("tech_stack")} placeholder="Next.js, Postgres, AWS, Claude" /></div>
+            <div><Label hint="comma-separated">Business priorities</Label><input style={inputStyle} value={company.priorities} onChange={cf("priorities")} placeholder="CX, AI-first, automation, security" /></div>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <Label hint="free text">About the company</Label>
+            <textarea style={{ ...inputStyle, minHeight: 74, resize: "vertical" }} value={company.description} onChange={cf("description")}
+              placeholder="What the company does, who it serves, and anything the advisor should always keep in mind." />
+          </div>
+          {canManageCompany && (
+            <div style={{ marginTop: 14 }}>
+              <button className="btn primary sm" disabled={busy === "company"} onClick={saveCompany}>
+                {busy === "company" ? "Saving…" : "Save company profile"}
+              </button>
+            </div>
+          )}
+        </fieldset>
       </div>
 
       {u && billing && (
@@ -216,9 +371,7 @@ export default function SettingsPage() {
                         title="Team → which copilot joins their meetings"
                         onChange={(e) => updateMember(m.id, { team: e.target.value })}
                       >
-                        <option value="sales">🟦 Sales</option>
-                        <option value="tech">🟩 Tech</option>
-                        <option value="ops">⬜ Ops</option>
+                        {DEPARTMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
                       <select
                         className="member-select"
