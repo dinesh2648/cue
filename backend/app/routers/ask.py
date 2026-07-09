@@ -97,6 +97,9 @@ async def ask(
         "confidence": best.get("confidence", 0.0),
         "engine": best.get("engine", "deep" if deep else "fast"),
         "grounded": best.get("grounded", False),
+        "assumptions": best.get("assumptions", []),
+        "risks": best.get("risks", []),
+        "next_actions": best.get("next_actions", []),
         "persona": persona,
         "intent": intent.intent_type,
         "connected": searched,  # every source searched: remote-MCP servers + in-process sources

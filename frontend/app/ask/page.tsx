@@ -86,6 +86,23 @@ export default function AskPage() {
             <div key={i} className="card" style={{ alignSelf: "flex-start", maxWidth: "88%", padding: "14px 16px" }}>
               <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{t.text}</div>
 
+              {(t.meta.next_actions?.length || t.meta.risks?.length || t.meta.assumptions?.length) ? (
+                <div className="envelope">
+                  {t.meta.next_actions?.length ? (
+                    <div className="env-block"><div className="kicker">▸ Recommended next actions</div>
+                      <ul className="env-list">{t.meta.next_actions.map((x, j) => <li key={j}>{x}</li>)}</ul></div>
+                  ) : null}
+                  {t.meta.risks?.length ? (
+                    <div className="env-block"><div className="kicker">⚠ Risks &amp; caveats</div>
+                      <ul className="env-list warn">{t.meta.risks.map((x, j) => <li key={j}>{x}</li>)}</ul></div>
+                  ) : null}
+                  {t.meta.assumptions?.length ? (
+                    <div className="env-block"><div className="kicker">◇ Assumptions</div>
+                      <ul className="env-list muted">{t.meta.assumptions.map((x, j) => <li key={j}>{x}</li>)}</ul></div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, alignItems: "center" }}>
                 <span className="engine-badge">{t.meta.engine}</span>
                 <span className="badge">{t.meta.persona}</span>

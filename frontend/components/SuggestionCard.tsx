@@ -200,6 +200,29 @@ export default function SuggestionCard({
         )}
         <div className="answer">{renderRich(s.answer)}</div>
 
+        {s.envelope && (s.envelope.assumptions?.length || s.envelope.risks?.length || s.envelope.next_actions?.length) ? (
+          <div className="envelope">
+            {s.envelope.next_actions?.length ? (
+              <div className="env-block">
+                <div className="kicker">▸ Recommended next actions</div>
+                <ul className="env-list">{s.envelope.next_actions.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              </div>
+            ) : null}
+            {s.envelope.risks?.length ? (
+              <div className="env-block">
+                <div className="kicker">⚠ Risks &amp; caveats</div>
+                <ul className="env-list warn">{s.envelope.risks.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              </div>
+            ) : null}
+            {s.envelope.assumptions?.length ? (
+              <div className="env-block">
+                <div className="kicker">◇ Assumptions</div>
+                <ul className="env-list muted">{s.envelope.assumptions.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {s.evidence?.length > 0 && (
           <>
             <div className="kicker">Supporting evidence</div>

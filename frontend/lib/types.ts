@@ -34,6 +34,11 @@ export interface Action {
   [k: string]: unknown;
 }
 
+export interface Envelope {
+  assumptions?: string[];
+  risks?: string[];
+  next_actions?: string[];
+}
 export interface Suggestion {
   id: string;
   intent_type: string;
@@ -48,6 +53,7 @@ export interface Suggestion {
   engine?: string;
   grounded?: boolean;
   access_scope?: string;
+  envelope?: Envelope;
   deep_pending?: boolean;
   created_at: string;
 }
@@ -312,6 +318,9 @@ export interface AskResult {
   confidence: number;
   engine: string;
   grounded: boolean;
+  assumptions?: string[];
+  risks?: string[];
+  next_actions?: string[];
   persona: "sales" | "tech";
   intent: string;
   connected: string[]; // sources available to the agent

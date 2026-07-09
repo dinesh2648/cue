@@ -97,6 +97,8 @@ class Suggestion(Base):
     sources: Mapped[list] = mapped_column(JSON, default=list)
     actions: Mapped[list] = mapped_column(JSON, default=list)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    # Advisory envelope: {assumptions[], risks[], next_actions[]} — the structured tail per answer.
+    envelope: Mapped[dict] = mapped_column(JSON, default=dict)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)  # time-to-first (fast path) — the SLA metric
     deep_latency_ms: Mapped[int] = mapped_column(Integer, default=0)  # full agent loop time
     engine: Mapped[str] = mapped_column(String(24), default="offline")

@@ -218,6 +218,11 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
                 sugg.deep_latency_ms = deep_latency
                 sugg.grounded = deep.get("grounded", True)
                 sugg.access_scope = deep.get("access_scope", "demo")
+                sugg.envelope = {
+                    "assumptions": deep.get("assumptions", []),
+                    "risks": deep.get("risks", []),
+                    "next_actions": deep.get("next_actions", []),
+                }
             else:
                 sugg.engine = "offline"  # deep failed; keep the fast answer
             db.commit()
@@ -246,6 +251,7 @@ def _sugg_payload(sugg: Suggestion, *, deep_pending: bool) -> dict:
         "engine": sugg.engine,
         "grounded": sugg.grounded,
         "access_scope": sugg.access_scope,
+        "envelope": sugg.envelope or {},
         "deep_pending": deep_pending,
         "created_at": sugg.created_at.isoformat(),
     }
