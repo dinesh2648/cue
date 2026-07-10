@@ -307,6 +307,31 @@ export interface Insight {
   text: string;
 }
 
+export interface ShareLink {
+  token: string;
+  url: string;
+  scopes: string[];
+  expires_at: string | null;
+  revoked: boolean;
+  view_count: number;
+  created_at: string | null;
+}
+export interface ShareBundle {
+  meeting: { title: string; customer_company: string; date: string | null; status: string };
+  scopes: string[];
+  summary?: {
+    executive_summary: string;
+    key_decisions: string[];
+    risks: string[];
+    action_items: string[];
+    customer_concerns: string[];
+    follow_up_email: string;
+  } | null;
+  prep?: { title: string; markdown: string; sources: Source[] } | null;
+  transcript?: { speaker: string; role: string; text: string }[];
+  recording?: { status: string; url: string | null; detail?: string };
+}
+
 export type WSEvent =
   | { type: "transcript"; data: Segment }
   | { type: "intent"; data: { intent_type: string; family: string; confidence: number; query_text: string; actionable: boolean } }

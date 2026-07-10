@@ -8,6 +8,7 @@ import type { Meeting, Segment, Suggestion, Summary, WSEvent, ProposedAction, Ac
 import SuggestionCard from "@/components/SuggestionCard";
 import InsightsPanel from "@/components/InsightsPanel";
 import MeetingAsk from "@/components/MeetingAsk";
+import SharePanel from "@/components/SharePanel";
 import SummaryPanel from "@/components/SummaryPanel";
 import ApprovalsPanel from "@/components/ApprovalsPanel";
 import ScorecardPanel from "@/components/ScorecardPanel";
@@ -31,6 +32,7 @@ export default function MeetingConsole() {
   const [prepOpen, setPrepOpen] = useState(false);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [tagged, setTagged] = useState<Segment[]>([]);
+  const [shareOpen, setShareOpen] = useState(false);
   const toggleTag = (seg: Segment) =>
     setTagged((prev) => (prev.some((t) => t.id === seg.id) ? prev.filter((t) => t.id !== seg.id) : [...prev, seg]));
 
@@ -215,6 +217,9 @@ export default function MeetingConsole() {
             📝 Notes
           </button>
         )}
+        <button className="btn ghost sm" onClick={() => setShareOpen(true)} title="Create a public share link for this meeting's artifacts">
+          🔗 Share
+        </button>
         {status !== "ended" && (
           <button className="btn danger" onClick={endMeeting} disabled={ending}>
             {ending ? "Generating…" : "⏹  End & summarize"}
@@ -346,6 +351,7 @@ export default function MeetingConsole() {
 
       {status === "ended" && <ScorecardPanel meetingId={id} />}
 
+      {shareOpen && <SharePanel meetingId={id} onClose={() => setShareOpen(false)} />}
       {toast && <div className="toast">{toast}</div>}
     </main>
   );

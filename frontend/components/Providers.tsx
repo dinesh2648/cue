@@ -132,6 +132,14 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     window.location.href = (process.env.NEXT_PUBLIC_BASE_PATH || "") + "/";
   };
 
+  // Public share pages (/share/<token>) are viewable without signing in — render them bare,
+  // with no auth gate and no app chrome (they carry their own minimal header).
+  const isPublicShare =
+    typeof window !== "undefined" && /(^|\/)share\/[^/]+/.test(window.location.pathname);
+  if (isPublicShare) {
+    return <>{children}</>;
+  }
+
   if (phase === "loading") {
     return <div className="boot">Loading…</div>;
   }

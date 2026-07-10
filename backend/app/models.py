@@ -1,10 +1,11 @@
 """SQLAlchemy ORM models."""
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, true
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -12,6 +13,10 @@ from .db import Base
 
 def _uuid() -> str:
     return uuid.uuid4().hex
+
+
+def _share_token() -> str:
+    return secrets.token_urlsafe(24)  # ~32 chars, unguessable — the whole security of a public link
 
 
 def _now() -> datetime:
@@ -314,4 +319,26 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(64))
     resource: Mapped[str] = mapped_column(String(120), default="")
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ShareLink(Base):
+    """A public, read-only link to a meeting's artifacts (prep / transcript / recording / summary).
+
+    Security model: the unguessable `token` IS the access control — anyone with the link sees the
+    scoped artifacts, no login. The creator picks which artifacts to expose (`scopes`), can set an
+    expiry, and can revoke at any time. Nothing outside the chosen scopes is ever returned.
+    """
+
+    __tablename__ = "share_links"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, default=_share_token)
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    org_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    scopes: Mapped[list] = mapped_column(JSON, default=list)  # any of: prep|transcript|recording|summary
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

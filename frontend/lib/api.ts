@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -143,6 +143,13 @@ export const api = {
 
   ask: (query: string, context = "", meeting_id?: string, selection?: string[]) =>
     request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection }) }),
+
+  // Public shareable links for meeting artifacts
+  createShare: (meetingId: string, scopes: string[], expires_days: number | null) =>
+    request<ShareLink>(`/api/meetings/${meetingId}/share`, { method: "POST", body: JSON.stringify({ scopes, expires_days }) }),
+  listShares: (meetingId: string) => request<ShareLink[]>(`/api/meetings/${meetingId}/shares`),
+  revokeShare: (token: string) => request<{ revoked: boolean }>(`/api/share/${token}/revoke`, { method: "POST" }),
+  publicShare: (token: string) => request<ShareBundle>(`/api/share/${token}`),
 };
 
 export async function meetingSocket(id: string): Promise<WebSocket> {
