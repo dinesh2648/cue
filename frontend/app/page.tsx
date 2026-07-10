@@ -99,110 +99,73 @@ export default function Home() {
     }
   };
 
+  const greeting = (() => {
+    const h = new Date().getHours();
+    return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  })();
+  const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }).toUpperCase();
+
   return (
     <main className="container">
-      <section className="hero">
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--accent)", marginBottom: 12 }}>
-            Sales · Engineering · and more
-          </div>
-          <h1>
-            Your real-time <span className="grad">AI copilot</span>, in every meeting.
-          </h1>
-          <p>
-            Cue joins your meeting — a sales call or an engineering sync — follows the conversation,
-            and the moment a question comes up it surfaces a grounded answer from <b>all</b> your
-            connected tools: CRM, docs, Jira, GitHub, Slack, email and more — with sources and a
-            confidence score. Then it writes the recap and does the follow-up for you.
-          </p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button className="btn primary" onClick={startDemo} disabled={starting}>
-              {starting ? "Starting…" : "▶  Start demo meeting"}
-            </button>
-            <Link href="/connections" className="btn ghost">
-              🔌 Connect your tools
-            </Link>
-            {health && (
-              <span className="btn ghost" style={{ cursor: "default" }}>
-                <span className="pill live" style={{ border: "none", background: "transparent", padding: 0 }}>
-                  <span className="led" />
-                </span>
-                Agent: {health.agent_engine} · retrieval: {health.knowledge_backend}
-              </span>
-            )}
-          </div>
-
-          {limitMsg && (
-            <div className="crm-banner" style={{ background: "rgba(251,191,36,0.10)", borderColor: "#5c4a1f", color: "#fcd34d", marginTop: 16 }}>
-              <span style={{ fontSize: 18 }}>⚡</span>
-              <div>
-                {limitMsg}{" "}
-                <Link href="/settings" style={{ textDecoration: "underline", fontWeight: 700 }}>Upgrade →</Link>
-              </div>
-            </div>
-          )}
-
-          {metrics && (
-            <>
-              <div className="meta-strip">
-                <div className="metric">
-                  <div className="v good">{(metrics.avg_latency_ms / 1000).toFixed(1)}s</div>
-                  <div className="l">Avg response</div>
-                </div>
-                <div className="metric">
-                  <div className="v">{(metrics.p95_latency_ms / 1000).toFixed(1)}s</div>
-                  <div className="l">P95 response</div>
-                </div>
-                <div className="metric">
-                  <div className="v good">{metrics.sla_compliance_pct}%</div>
-                  <div className="l">Within {Math.round(metrics.response_sla_ms / 1000)}s SLA</div>
-                </div>
-                <div className="metric">
-                  <div className="v good">{metrics.grounded_pct}%</div>
-                  <div className="l">Grounded in sources</div>
-                </div>
-                <div className="metric">
-                  <div className="v">{metrics.suggestions}</div>
-                  <div className="l">Answers surfaced</div>
-                </div>
-                <div className="metric">
-                  <div className="v">{metrics.meetings}</div>
-                  <div className="l">Meetings run</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--faint)", marginTop: 8 }}>
-                Live metrics from your workspace · updates as you run meetings
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="card pad">
-          <div className="section-title">How it works</div>
-          <div className="pipeline">
-            {PIPELINE.map((p, i) => (
-              <div key={p.title}>
-                <div className="step">
-                  <span className="dot">{p.icon}</span>
-                  <div>
-                    <b>{p.title}</b>
-                    <br />
-                    <span>{p.sub}</span>
-                  </div>
-                </div>
-                {i < PIPELINE.length - 1 && <div className="arrow">↓</div>}
-              </div>
-            ))}
+      <div className="dash-head">
+        <div style={{ flex: 1, minWidth: 280 }}>
+          <div className="dash-eyebrow">{today}</div>
+          <h1 className="dash-title">{greeting}</h1>
+          <div className="dash-sub">
+            {liveMeetings.length > 0 ? (
+              <><b>{liveMeetings.length}</b> live now · </>
+            ) : null}
+            {health ? <>Agent <b>{health.agent_engine}</b> · retrieval {health.knowledge_backend}</> : "Your real-time AI copilot, in every meeting."}
           </div>
         </div>
-      </section>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button className="btn primary" onClick={startDemo} disabled={starting}>
+            {starting ? "Starting…" : "▶  Start demo meeting"}
+          </button>
+          <Link href="/connections" className="btn ghost">🔌 Connect your tools</Link>
+        </div>
+      </div>
 
-      <section style={{ marginBottom: 30 }}>
-        <div className="section-title">Bring the copilot to a real call</div>
+      {limitMsg && (
+        <div className="crm-banner" style={{ background: "rgba(199,122,0,0.10)", borderColor: "#E0C084", color: "#8A5A00", marginBottom: 18 }}>
+          <span style={{ fontSize: 18 }}>⚡</span>
+          <div>
+            {limitMsg}{" "}
+            <Link href="/settings" style={{ textDecoration: "underline", fontWeight: 700 }}>Upgrade →</Link>
+          </div>
+        </div>
+      )}
+
+      {metrics && (
+        <div className="kpi-grid">
+          <div className="kpi-card">
+            <div className="kpi-top"><span>Avg. response</span><span>⚡</span></div>
+            <div className="kpi-val">{(metrics.avg_latency_ms / 1000).toFixed(1)}s</div>
+            <div className="kpi-delta good">Within {Math.round(metrics.response_sla_ms / 1000)}s SLA · {metrics.sla_compliance_pct}%</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-top"><span>Grounded in sources</span><span>✓</span></div>
+            <div className="kpi-val">{metrics.grounded_pct}%</div>
+            <div className="kpi-delta good">cited, not invented</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-top"><span>Answers surfaced</span><span>💡</span></div>
+            <div className="kpi-val">{metrics.suggestions}</div>
+            <div className="kpi-delta mut">across your meetings</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-top"><span>Meetings run</span><span>📹</span></div>
+            <div className="kpi-val">{metrics.meetings}</div>
+            <div className="kpi-delta mut">in this workspace</div>
+          </div>
+        </div>
+      )}
+
+      <section style={{ marginBottom: 18 }}>
         <div className="card pad" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <input
             className="meet-input"
-            placeholder="Paste a Google Meet / Zoom / Teams link…"
+            placeholder="Paste a Google Meet / Zoom / Teams link to send the copilot…"
             value={meetUrl}
             onChange={(e) => setMeetUrl(e.target.value)}
             disabled={!recallEnabled}
@@ -307,46 +270,46 @@ export default function Home() {
         )}
       </section>
 
-      <section>
-        <div className="section-title">Recent meetings</div>
-        {meetings.length === 0 ? (
-          <div className="card empty">
-            No meetings yet. Hit <b>Start demo meeting</b> to watch the copilot work a live
-            Northwind Trading expansion call.
-          </div>
-        ) : (
-          <div className="meeting-list">
-            {meetings.map((m) => (
-              <div key={m.id} className="meeting-row">
-                <Link
-                  href={`/meeting/${m.id}`}
-                  style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}
-                >
-                  <span style={{ fontSize: 20 }}>{m.platform === "google_meet" ? "📹" : "💬"}</span>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="title">{m.title}</div>
-                    <div className="sub">
-                      {m.customer_company || "—"} · {new Date(m.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                </Link>
-                <span className={`pill ${m.status}`}>
-                  <span className="led" />
-                  {m.status}
-                </span>
-                {m.recall_bot_id && (
-                  <button className="btn ghost sm" disabled={recBusy === m.id} onClick={() => openRecording(m.id)} title="Open recording">
-                    {recBusy === m.id ? "…" : "📹 Recording"}
-                  </button>
-                )}
-                <Link href={`/meeting/${m.id}`} className="btn ghost sm" title="Transcript & notes">
-                  📝 Notes
-                </Link>
+      <div className="dash-grid">
+        <div className="list-card">
+          <div className="list-card-head"><span className="t">Recent meetings</span></div>
+          {meetings.length === 0 ? (
+            <div className="empty">No meetings yet. Hit <b>Start demo meeting</b> to watch the copilot work a live call.</div>
+          ) : (
+            meetings.slice(0, 8).map((m) => {
+              const label = (m.customer_company || m.title || "?").trim();
+              const initials = label.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+              return (
+                <div key={m.id} className="rm-row">
+                  <span className="rm-avatar">{initials}</span>
+                  <Link href={`/meeting/${m.id}`} className="rm-main" style={{ textDecoration: "none", color: "inherit" }}>
+                    <div className="rm-title">{m.title}</div>
+                    <div className="rm-sub">{m.customer_company || "—"} · {new Date(m.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
+                  </Link>
+                  <span className={`pill ${m.status}`}><span className="led" />{m.status}</span>
+                  {m.recall_bot_id && (
+                    <button className="btn ghost sm" disabled={recBusy === m.id} onClick={() => openRecording(m.id)} title="Open recording">
+                      {recBusy === m.id ? "…" : "📹"}
+                    </button>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div className="navy-card">
+            <div className="nc-head">✦ How Cue works</div>
+            {PIPELINE.map((p, i) => (
+              <div className="nc-step" key={p.title}>
+                <span className="nc-num">{i + 1}</span>
+                <div><b>{p.title}</b> — {p.sub}</div>
               </div>
             ))}
           </div>
-        )}
-      </section>
+        </div>
+      </div>
     </main>
   );
 }
