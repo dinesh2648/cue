@@ -83,40 +83,35 @@ function fmtDate(d: string): string {
   return isNaN(t.getTime()) ? "" : t.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function MemberCard({ m }: { m: TeamMember }) {
-  const [open, setOpen] = useState(m.meeting_count > 0 && m.meeting_count <= 4);
-  const teamLabel = m.team === "tech" ? "Tech" : m.team === "ops" ? "Ops" : "Sales";
+const teamLabelOf = (t: string) =>
+  ({ tech: "Tech", ops: "Ops", finance: "Finance", hr: "HR", marketing: "Marketing", cs: "CS" } as Record<string, string>)[t] || "Sales";
+
+function TeamRow({ m }: { m: TeamMember }) {
+  const [open, setOpen] = useState(false);
+  const status = m.meeting_count > 0 ? "active" : "idle";
   return (
-    <div className="card pad" style={{ marginBottom: 12 }}>
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", cursor: m.meeting_count ? "pointer" : "default" }}
-        onClick={() => m.meeting_count && setOpen(!open)}
-      >
-        <span style={{ width: 42, height: 42, borderRadius: "50%", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 16, background: "var(--surface-2)", color: "var(--muted)" }}>
-          {(m.name || "?").charAt(0).toUpperCase()}
-        </span>
-        <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontWeight: 700 }}>
-            {m.name} <span className="badge">{teamLabel}</span> <span className="badge">{m.role}</span>
-          </div>
-          <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>
-            {m.email} · {m.meeting_count} meeting{m.meeting_count === 1 ? "" : "s"}
-            {m.avg_score != null ? <> · <span style={{ color: scoreColor(m.avg_score), fontWeight: 700 }}>avg {m.avg_score}</span></> : null}
+    <>
+      <div className="tt-row" onClick={() => m.meeting_count && setOpen(!open)}>
+        <div className="tt-member">
+          <span className="tt-avatar">{(m.name || m.email || "?").charAt(0).toUpperCase()}</span>
+          <div style={{ minWidth: 0 }}>
+            <div className="tt-name">{m.name || m.email}</div>
+            <div className="tt-email">{m.email}</div>
           </div>
         </div>
-        {m.meeting_count > 0 && <span style={{ color: "var(--faint)" }}>{open ? "▾" : "▸"}</span>}
+        <span className="tt-cell" style={{ textTransform: "capitalize" }}>{m.role} · {teamLabelOf(m.team)}</span>
+        <span className="tt-cell">{m.meeting_count}</span>
+        <span className="tt-score" style={{ color: m.avg_score != null ? scoreColor(m.avg_score) : "var(--faint)" }}>{m.avg_score ?? "—"}</span>
+        <span className={`tt-status ${status}`}>{status === "active" ? "Active" : "No calls"}</span>
       </div>
-
       {open && (
-        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="tt-expand">
           {m.meetings.map((mt) => (
             <Link key={mt.id} href={`/meeting/${mt.id}`} style={{ textDecoration: "none", color: "inherit" }}>
               <div className="card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{mt.title}</div>
-                  <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                    {fmtDate(mt.date)} · {mt.status}
-                  </div>
+                  <div style={{ color: "var(--muted)", fontSize: 12 }}>{fmtDate(mt.date)} · {mt.status}</div>
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11.5, alignItems: "center" }}>
                   <span className="badge">{mt.persona === "tech" ? "Tech" : "Sales"}</span>
@@ -132,7 +127,7 @@ function MemberCard({ m }: { m: TeamMember }) {
           {m.meeting_count === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No meetings yet.</div>}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -164,13 +159,11 @@ export default function TeamPage() {
         </div>
       ) : (
         <>
-          <div className="meta-strip" style={{ marginTop: 0, marginBottom: 18 }}>
-            <div className="metric"><div className="v">{data.reps.length}</div><div className="l">Reps</div></div>
-            <div className="metric"><div className="v">{data.scored_calls}</div><div className="l">Calls scored</div></div>
-            <div className="metric">
-              <div className="v good">{Math.round(data.reps.reduce((a, r) => a + r.avg_score, 0) / data.reps.length)}</div>
-              <div className="l">Team avg</div>
-            </div>
+          <div className="kpi-grid">
+            <div className="kpi-card"><div className="kpi-top"><span>Reps</span><span>◎</span></div><div className="kpi-val">{data.reps.length}</div><div className="kpi-delta mut">with scored calls</div></div>
+            <div className="kpi-card"><div className="kpi-top"><span>Calls scored</span><span>✓</span></div><div className="kpi-val">{data.scored_calls}</div><div className="kpi-delta mut">across the team</div></div>
+            <div className="kpi-card"><div className="kpi-top"><span>Team avg</span><span>⭐</span></div><div className="kpi-val">{Math.round(data.reps.reduce((a, r) => a + r.avg_score, 0) / data.reps.length)}</div><div className="kpi-delta good">out of 100</div></div>
+            <div className="kpi-card" style={{ borderLeftColor: "var(--amber)" }}><div className="kpi-top"><span>Coaching flags</span><span>⚠</span></div><div className="kpi-val">{data.reps.filter((r) => r.avg_score < 65).length}</div><div className="kpi-delta mut">reps under 65</div></div>
           </div>
           {data.reps.map((rep, i) => <RepCard key={rep.rep_name} rep={rep} rank={i + 1} />)}
         </>
@@ -180,10 +173,13 @@ export default function TeamPage() {
         <section style={{ marginTop: 32 }}>
           <h2 style={{ fontSize: 20, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Team members &amp; meetings</h2>
           <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 0, marginBottom: 14 }}>
-            Everyone you can see, with their meetings. Open any meeting for its transcript, live answers,
-            summary and recording.
+            Everyone you can see, with their meetings. Click a row to open their meetings — transcript,
+            live answers, summary and recording.
           </p>
-          {members.map((m) => <MemberCard key={m.id} m={m} />)}
+          <div className="team-table">
+            <div className="tt-head"><span>Member</span><span>Role · team</span><span>Calls</span><span>Avg score</span><span>Status</span></div>
+            {members.map((m) => <TeamRow key={m.id} m={m} />)}
+          </div>
         </section>
       )}
     </main>
