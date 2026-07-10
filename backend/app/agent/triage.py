@@ -102,7 +102,18 @@ async def classify(text: str, recent: list[str] | None, labels: dict[str, str]) 
             )
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # network / API error → regex fallback
+    except httpx.HTTPStatusError as exc:  # API rejected the request (e.g. bad model) → show why
+        body = ""
+        try:
+            body = exc.response.text[:400]
+        except Exception:  # pragma: no cover
+            pass
+        log.warning(
+            "triage failed (HTTP %s, model=%s); falling back to regex. Anthropic said: %s",
+            exc.response.status_code, settings.triage_model, body,
+        )
+        return None
+    except Exception as exc:  # network / other error → regex fallback
         log.warning("triage failed; falling back to regex: %s", exc)
         return None
 

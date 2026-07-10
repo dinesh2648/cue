@@ -18,7 +18,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/copilot.db}
       ENABLED_PACKS: ${ENABLED_PACKS:-sales}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}       # deep answers/prep/summary — override in .env
+      TRIAGE_MODEL: ${TRIAGE_MODEL:-claude-haiku-4-5-20251001}     # fast intent triage — override in .env
       # Default 'auto' → messages_mcp when an Anthropic key is set. Must never be empty: an empty
       # string is treated as an explicit engine and would disable the deep tier. .env is NOT baked
       # into the image, so this passthrough is the only way the setting reaches the container.
