@@ -19,7 +19,6 @@ export default function Home() {
   const router = useRouter();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [health, setHealth] = useState<{ llm_provider: string; agent_engine: string; knowledge_backend: string } | null>(null);
   const [starting, setStarting] = useState(false);
   const [recallEnabled, setRecallEnabled] = useState(false);
   const [meetUrl, setMeetUrl] = useState("");
@@ -45,7 +44,6 @@ export default function Home() {
 
   useEffect(() => {
     api.metrics().then(setMetrics).catch(() => {});
-    api.health().then(setHealth).catch(() => {});
     api.authConfig().then((c) => setRecallEnabled(c.recall_enabled)).catch(() => {});
     // Poll meetings + calendar so a copilot that auto-joins shows up without a manual refresh.
     const refresh = () => {
@@ -115,7 +113,7 @@ export default function Home() {
             {liveMeetings.length > 0 ? (
               <><b>{liveMeetings.length}</b> live now · </>
             ) : null}
-            {health ? <>Agent <b>{health.agent_engine}</b> · retrieval {health.knowledge_backend}</> : "Your real-time AI copilot, in every meeting."}
+            Your real-time AI copilot, in every meeting.
           </div>
         </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

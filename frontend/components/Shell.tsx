@@ -83,7 +83,6 @@ export default function Shell({
           <header className="cue-topbar">
             <div className="cue-page-title">{pageTitle(path)}</div>
             <div className="spacer" />
-            <Link href="/" className="btn primary sm">＋ New meeting</Link>
           </header>
         )}
         <div className={`cue-content ${isMeeting ? "cue-content-dark" : ""}`}>{children}</div>
