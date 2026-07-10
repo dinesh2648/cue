@@ -178,7 +178,7 @@ export default function SettingsPage() {
 
   return (
     <main className="container">
-      <h1 style={{ fontSize: 28, letterSpacing: "-0.025em", margin: "4px 0 18px" }}>Settings &amp; billing</h1>
+      <h1 className="page-title">Settings &amp; billing</h1>
 
       {/* Auto-pilot */}
       <div className="card pad" style={{ marginBottom: 22 }}>

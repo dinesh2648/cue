@@ -86,7 +86,7 @@ export default function ConnectionsPage() {
 
   return (
     <main className="container">
-      <h1 style={{ fontSize: 28, letterSpacing: "-0.025em", margin: "4px 0 6px" }}>Your connections</h1>
+      <h1 className="page-title">Your connections</h1>
       <p style={{ color: "var(--muted)", maxWidth: 680, lineHeight: 1.6, marginTop: 0 }}>
         Click <b>Connect</b> and approve on the provider&apos;s own page — no keys to paste. You authorize
         with <b>your own</b> account, so the copilot only ever sees what you can. Tokens are encrypted and

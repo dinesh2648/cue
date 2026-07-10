@@ -148,7 +148,7 @@ export default function TeamPage() {
 
   return (
     <main className="container">
-      <h1 style={{ fontSize: 28, letterSpacing: "-0.025em", margin: "4px 0 6px" }}>Team coaching</h1>
+      <h1 className="page-title">Team coaching</h1>
       <p style={{ color: "var(--muted)", maxWidth: 680, lineHeight: 1.6, marginTop: 0 }}>
         How the team is handling calls — average scores across every analyzed meeting, trends over
         time, and the most common areas to coach. Score more calls from each meeting&apos;s coaching panel.
