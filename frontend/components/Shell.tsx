@@ -86,7 +86,7 @@ export default function Shell({
             <Link href="/" className="btn primary sm">＋ New meeting</Link>
           </header>
         )}
-        <div className="cue-content">{children}</div>
+        <div className={`cue-content ${isMeeting ? "cue-content-dark" : ""}`}>{children}</div>
       </div>
     </div>
   );

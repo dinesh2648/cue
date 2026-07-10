@@ -18,11 +18,14 @@ export default function SummaryPanel({ summary }: { summary: Summary }) {
 
   return (
     <div className="summary-panel" style={{ marginTop: 26 }}>
-      <h2 className="section-title">📋 Post-meeting summary &amp; automation</h2>
+      <h2 className="section-title">📋 Post-meeting recap &amp; automation</h2>
 
       <div className="card pad">
-        <h4 style={{ margin: "0 0 8px", fontSize: 14 }}>Executive summary</h4>
-        <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.6, fontSize: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+          <span style={{ fontSize: 18 }}>✦</span>
+          <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 17, color: "var(--text)" }}>AI summary</span>
+        </div>
+        <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.65, fontSize: 14.5 }}>
           {summary.executive_summary}
         </p>
       </div>

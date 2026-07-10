@@ -559,3 +559,27 @@ code { background: var(--bg-2); border: 1px solid var(--border); border-radius: 
 .settings-col { min-width: 0; display: flex; flex-direction: column; }
 .settings-col > [id^="s-"] { scroll-margin-top: 84px; height: 0; }
 @media (max-width: 820px) { .settings-layout { grid-template-columns: 1fr; } .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; } }
+
+/* ── Live meeting console: dark immersive surface (comp) ──────────────────────
+   Scope-overrides the semantic tokens so every child component (transcript,
+   suggestion cards, insights, Ask, recap) renders on a dark navy surface with no
+   per-component changes — the whole meeting screen becomes the immersive console. */
+.cue-content-dark {
+  background: #141757;
+  min-height: 100%;
+  color: #fff;
+  --surface: #1b204e;
+  --surface-2: #262c60;
+  --bg: #141757;
+  --bg-2: #10143c;
+  --border: rgba(255,255,255,0.10);
+  --border-2: rgba(255,255,255,0.18);
+  --text: #ffffff;
+  --muted: rgba(255,255,255,0.76);
+  --faint: rgba(255,255,255,0.52);
+  --shadow: 0 10px 24px rgba(0,0,0,0.30);
+}
+/* keep the "REC/live" pill readable on dark */
+.cue-content-dark .pill.live { color: #ffb3b3; border-color: rgba(193,48,48,0.45); background: rgba(193,48,48,0.16); }
+.cue-content-dark .pill.live .led { background: #ff5a5a; }
+.cue-content-dark code { background: rgba(255,255,255,0.08); }
