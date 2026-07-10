@@ -47,12 +47,14 @@ def me(user: User = Depends(get_current_user)) -> dict:
         "id": user.id, "email": user.email, "name": user.name,
         "org_id": user.org_id, "role": user.role, "autopilot": user.autopilot,
         "team": user.team, "profile": user.profile or {}, "custom_context": user.custom_context or "",
+        "language": user.language or "en",
     }
 
 
 class ProfileUpdate(BaseModel):
     # Personal advisory context. All optional — send only what changed.
     team: str | None = None            # department: sales|tech|ops|finance|hr|marketing|cs
+    language: str | None = None        # ISO code for AI output language (en|ar|fr|…)
     designation: str | None = None
     manager_name: str | None = None
     location: str | None = None
@@ -75,6 +77,10 @@ def set_profile(
     if body.team is not None:
         t = body.team.strip().lower()
         user.team = t if t in DEPARTMENTS else user.team
+    if body.language is not None:
+        from ..advisor.profiles import LANGUAGES
+        lang = body.language.strip().lower()
+        user.language = lang if lang in LANGUAGES else "en"
     if body.custom_context is not None:
         user.custom_context = body.custom_context[:2000]
     prof = dict(user.profile or {})
@@ -89,7 +95,7 @@ def set_profile(
     user.profile = prof
     db.add(user)
     db.commit()
-    return {"team": user.team, "profile": user.profile, "custom_context": user.custom_context}
+    return {"team": user.team, "language": user.language, "profile": user.profile, "custom_context": user.custom_context}
 
 
 class AutopilotRequest(BaseModel):

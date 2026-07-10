@@ -57,7 +57,7 @@ export const api = {
   me: () => request<MeInfo>("/api/me"),
   setAutopilot: (enabled: boolean) =>
     request<{ autopilot: boolean }>("/api/me/autopilot", { method: "POST", body: JSON.stringify({ enabled }) }),
-  setProfile: (patch: Partial<UserProfile> & { team?: string; custom_context?: string }) =>
+  setProfile: (patch: Partial<UserProfile> & { team?: string; language?: string; custom_context?: string }) =>
     request<{ team: string; profile: UserProfile; custom_context: string }>("/api/me/profile", {
       method: "POST",
       body: JSON.stringify(patch),

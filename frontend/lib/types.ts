@@ -284,6 +284,7 @@ export interface MeInfo {
   role?: string;
   autopilot?: boolean;
   team?: string;
+  language?: string;
   profile?: UserProfile;
   custom_context?: string;
 }

@@ -13,6 +13,41 @@ from sqlalchemy.orm import Session
 from ..models import Organization, User
 from .roles import department_label, role_directive
 
+# Output languages the advisor can write in (ISO code → English name / native name).
+LANGUAGES: dict[str, tuple[str, str]] = {
+    "en": ("English", "English"),
+    "ar": ("Arabic", "العربية"),
+    "fr": ("French", "Français"),
+    "es": ("Spanish", "Español"),
+    "de": ("German", "Deutsch"),
+    "hi": ("Hindi", "हिन्दी"),
+    "ur": ("Urdu", "اردو"),
+    "pt": ("Portuguese", "Português"),
+    "zh": ("Chinese", "中文"),
+    "ja": ("Japanese", "日本語"),
+    "ru": ("Russian", "Русский"),
+    "tr": ("Turkish", "Türkçe"),
+}
+
+
+def language_of(user: User | None) -> str:
+    code = (getattr(user, "language", "") or "en").lower()
+    return code if code in LANGUAGES else "en"
+
+
+def language_directive(user: User | None) -> str:
+    """Instruction forcing the advisor to write in the user's language — '' for English (default)."""
+    code = language_of(user)
+    if code == "en":
+        return ""
+    name, native = LANGUAGES[code]
+    return (
+        f"CRITICAL — LANGUAGE: Write your ENTIRE response in {name} ({native}). The meeting and the "
+        f"source material may be in another language; translate everything (answer, summaries, quoted "
+        f"snippets) so this user reads it in {name}. Keep proper nouns, product names, code, ticket IDs "
+        f"and URLs unchanged."
+    )
+
 
 def _lines(label: str, value) -> list[str]:
     """Render 'label: a, b, c' for a list, 'label: value' for a scalar — or nothing if empty."""
@@ -71,19 +106,24 @@ def advisory_preamble(user: User | None, org: Organization | None) -> str:
     """The always-on context block. Empty string when nothing is configured (no noise)."""
     uc = user_context_block(user)
     cc = company_context_block(org)
-    if not uc and not cc:
+    lang = language_directive(user)
+    if not uc and not cc and not lang:
         return ""
-    parts = ["## Who you are advising"]
-    if uc:
-        parts.append(uc)
-    if cc:
-        parts.append("\n## Company context\n" + cc)
-    parts.append("\n" + role_directive(user))
-    parts.append(
-        "Tailor the answer to this person's role, decision authority and preferred output. "
-        "Ground everything in the sources provided; never invent facts about the person or company."
-    )
-    return "\n".join(parts)
+    parts: list[str] = []
+    if uc or cc:
+        parts.append("## Who you are advising")
+        if uc:
+            parts.append(uc)
+        if cc:
+            parts.append("\n## Company context\n" + cc)
+        parts.append("\n" + role_directive(user))
+        parts.append(
+            "Tailor the answer to this person's role, decision authority and preferred output. "
+            "Ground everything in the sources provided; never invent facts about the person or company."
+        )
+    if lang:  # last = strongest position in the prompt
+        parts.append("\n" + lang)
+    return "\n".join(parts).strip()
 
 
 def load_preamble(db: Session, user_id: str | None) -> str:

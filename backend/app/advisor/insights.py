@@ -58,8 +58,13 @@ async def detect(meeting_id: str) -> list[dict]:
         state_block = json.dumps({k: state.get(k) for k in (
             "current_topic", "open_questions", "decisions", "risks", "action_items", "entities"
         )})[:2500]
+        # Insights are shared (broadcast to the room) — write them in the meeting owner's language.
+        from .profiles import language_directive
+        from ..models import User as _User
+        owner = db.get(_User, meeting.owner_user_id) if meeting.owner_user_id else None
+        lang = language_directive(owner)
         raw = await llm_complete(
-            system=_SYSTEM,
+            system=_SYSTEM + (("\n" + lang) if lang else ""),
             user=f"Meeting state:\n{state_block}\n\nRecent transcript:\n{transcript}\n\nReturn the JSON insights.",
             max_tokens=500,
             temperature=0.2,

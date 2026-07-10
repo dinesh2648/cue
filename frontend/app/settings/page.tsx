@@ -12,9 +12,14 @@ const DEPARTMENTS: [string, string][] = [
   ["sales", "🟦 Sales"], ["tech", "🟩 Engineering"], ["ops", "⬜ Operations"],
   ["finance", "💰 Finance"], ["hr", "👥 People / HR"], ["marketing", "📣 Marketing"], ["cs", "🎧 Customer Success"],
 ];
+const LANGUAGES: [string, string][] = [
+  ["en", "English"], ["ar", "العربية (Arabic)"], ["fr", "Français"], ["es", "Español"],
+  ["de", "Deutsch"], ["hi", "हिन्दी (Hindi)"], ["ur", "اردو (Urdu)"], ["pt", "Português"],
+  ["zh", "中文 (Chinese)"], ["ja", "日本語 (Japanese)"], ["ru", "Русский"], ["tr", "Türkçe"],
+];
 const splitList = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const emptyProfile = {
-  team: "sales", designation: "", manager_name: "", location: "", timezone: "", focus: "",
+  team: "sales", language: "en", designation: "", manager_name: "", location: "", timezone: "", focus: "",
   responsibilities: "", decision_authority: "", working_style: "", preferred_output: "", custom_context: "",
 };
 const emptyCompany = { name: "", description: "", industry: "", locations: "", products: "", tech_stack: "", priorities: "" };
@@ -48,7 +53,7 @@ export default function SettingsPage() {
       setAutopilot(!!m.autopilot);
       const p = m.profile || {};
       setProf({
-        team: m.team || "sales", designation: p.designation || "", manager_name: p.manager_name || "",
+        team: m.team || "sales", language: m.language || "en", designation: p.designation || "", manager_name: p.manager_name || "",
         location: p.location || "", timezone: p.timezone || "", focus: p.focus || "",
         responsibilities: (p.responsibilities || []).join(", "), decision_authority: (p.decision_authority || []).join(", "),
         working_style: (p.working_style || []).join(", "), preferred_output: (p.preferred_output || []).join(", "),
@@ -70,7 +75,7 @@ export default function SettingsPage() {
     setBusy("profile");
     try {
       await api.setProfile({
-        team: prof.team, designation: prof.designation, manager_name: prof.manager_name,
+        team: prof.team, language: prof.language, designation: prof.designation, manager_name: prof.manager_name,
         location: prof.location, timezone: prof.timezone, focus: prof.focus,
         responsibilities: splitList(prof.responsibilities), decision_authority: splitList(prof.decision_authority),
         working_style: splitList(prof.working_style), preferred_output: splitList(prof.preferred_output),
@@ -219,6 +224,12 @@ export default function SettingsPage() {
             <Label>Department</Label>
             <select className="member-select" style={{ width: "100%" }} value={prof.team} onChange={pf("team")}>
               {DEPARTMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label hint="answers, prep & summary come to you in this language">Language</Label>
+            <select className="member-select" style={{ width: "100%" }} value={prof.language} onChange={pf("language")}>
+              {LANGUAGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
           <div><Label>Designation</Label><input style={inputStyle} value={prof.designation} onChange={pf("designation")} placeholder="Head of Technology" /></div>

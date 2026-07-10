@@ -256,6 +256,9 @@ class User(Base):
     #           preferred_output[], focus, timezone, location, manager_name}
     profile: Mapped[dict] = mapped_column(JSON, default=dict)
     custom_context: Mapped[str] = mapped_column(Text, default="")  # free-text the employee writes about themselves
+    # Preferred language for AI output (ISO code, e.g. en|ar|es|fr). The advisor writes this user's
+    # answers/prep/summary in it — so an English speaker reads English even in an Arabic meeting.
+    language: Mapped[str] = mapped_column(String(8), default="en", server_default="en")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
