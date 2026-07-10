@@ -180,6 +180,17 @@ export default function SettingsPage() {
     <main className="container">
       <h1 className="page-title">Settings &amp; billing</h1>
 
+      <div className="settings-layout">
+        <nav className="settings-nav">
+          <a href="#s-autopilot">🤖 Auto-pilot</a>
+          <a href="#s-profile">🧑‍💼 Your profile</a>
+          <a href="#s-company">🏢 Company</a>
+          <a href="#s-billing">💳 Plan &amp; billing</a>
+          <a href="#s-team">👥 Team</a>
+        </nav>
+        <div className="settings-col">
+
+      <div id="s-autopilot" />
       {/* Auto-pilot */}
       <div className="card pad" style={{ marginBottom: 22 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
@@ -211,6 +222,7 @@ export default function SettingsPage() {
         )}
       </div>
 
+      <div id="s-profile" />
       {/* Your advisory profile — injected into every AI request */}
       <div className="card pad" style={{ marginBottom: 22 }}>
         <div className="section-title" style={{ marginBottom: 4 }}>🧑‍💼 Your advisory profile</div>
@@ -256,6 +268,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <div id="s-company" />
       {/* Company profile — one per workspace, injected into every request */}
       <div className="card pad" style={{ marginBottom: 22 }}>
         <div className="section-title" style={{ marginBottom: 4 }}>🏢 Company profile</div>
@@ -289,6 +302,7 @@ export default function SettingsPage() {
         </fieldset>
       </div>
 
+      <div id="s-billing" />
       {u && billing && (
         <div className="card pad" style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -359,6 +373,7 @@ export default function SettingsPage() {
         })}
       </div>
 
+      <div id="s-team" />
       {org && (
         <>
           <div className="section-title" style={{ marginTop: 28 }}>Team · {org.name}</div>
@@ -421,6 +436,8 @@ export default function SettingsPage() {
         </>
       )}
 
+        </div>
+      </div>
       {toast && <div className="toast">{toast}</div>}
     </main>
   );
