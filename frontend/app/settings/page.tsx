@@ -119,7 +119,7 @@ export default function SettingsPage() {
     setAutopilot(next);
     try {
       await api.setAutopilot(next);
-      setToast(next ? "✓ Auto-pilot on — I'll join & summarize your external meetings" : "Auto-pilot off");
+      setToast(next ? "✓ Auto-pilot on — I'll auto-join & summarize your meetings" : "Auto-pilot off — you'll bring the copilot in manually");
       setTimeout(() => setToast(null), 3000);
     } catch {
       setAutopilot(!next);
@@ -179,11 +179,12 @@ export default function SettingsPage() {
       <div className="card pad" style={{ marginBottom: 22 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 240 }}>
-            <div className="section-title" style={{ marginBottom: 4 }}>🤖 Auto-pilot my meetings</div>
+            <div className="section-title" style={{ marginBottom: 4 }}>🤖 Auto-pilot my meetings <span className="pill" style={{ fontSize: 10, marginLeft: 6 }}>on by default</span></div>
             <p style={{ color: "var(--muted)", fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
-              Automatically send the copilot to your upcoming <b>external</b> meetings (from your Google
-              Calendar), and auto-generate the summary, CRM actions and rep scorecard when each call
-              ends — no manual “send” or “end” clicks. Internal-only meetings are skipped.
+              The copilot <b>automatically joins your meetings the moment they start</b> (from your Google
+              Calendar) and auto-generates the notes, actions and scorecard when each call ends — no manual
+              join, send or end. This is on by default; turn it off here if you&apos;d rather bring the
+              copilot in yourself. Solo holds with no other attendees are skipped.
             </p>
           </div>
           <button

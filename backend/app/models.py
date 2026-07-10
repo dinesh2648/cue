@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -240,7 +240,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), default="owner")  # owner|admin|manager|member
     team: Mapped[str] = mapped_column(String(24), default="sales")  # department: sales|tech|ops|finance|hr|marketing|cs
     manager_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
-    autopilot: Mapped[bool] = mapped_column(default=False)  # auto-join + auto-summarize my meetings
+    # Auto-join + auto-summarize my meetings. ON by default (zero-touch) — each user can turn it
+    # off at /settings. server_default set in the same migration that backfills existing users.
+    autopilot: Mapped[bool] = mapped_column(default=True, server_default=true())
     # Personal advisory context — injected into EVERY AI request so the advisor knows who it's for.
     # profile: {designation, responsibilities[], decision_authority[], working_style[],
     #           preferred_output[], focus, timezone, location, manager_name}
