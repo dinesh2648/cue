@@ -33,6 +33,9 @@ export default function MeetingConsole() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [tagged, setTagged] = useState<Segment[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
+  // Completed meetings open with the transcript + suggestions collapsed; loaded lazily on expand.
+  const [openTx, setOpenTx] = useState(true);
+  const [openSug, setOpenSug] = useState(true);
   const toggleTag = (seg: Segment) =>
     setTagged((prev) => (prev.some((t) => t.id === seg.id) ? prev.filter((t) => t.id !== seg.id) : [...prev, seg]));
 
@@ -75,6 +78,14 @@ export default function MeetingConsole() {
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const suggestRef = useRef<HTMLDivElement | null>(null);
+  const loadedTx = useRef(false);
+  const loadedSug = useRef(false);
+
+  // Lazy fetch — only pull transcript / suggestions the first time a collapsed section is opened.
+  const ensureTranscript = () => { if (loadedTx.current) return; loadedTx.current = true; api.transcript(id).then(setSegments).catch(() => {}); };
+  const ensureSuggest = () => { if (loadedSug.current) return; loadedSug.current = true; api.suggestions(id).then(setSuggestions).catch(() => {}); };
+  const toggleTx = () => setOpenTx((o) => { const n = !o; if (n) ensureTranscript(); return n; });
+  const toggleSug = () => setOpenSug((o) => { const n = !o; if (n) ensureSuggest(); return n; });
 
   // Initial load + WebSocket
   useEffect(() => {
@@ -84,10 +95,18 @@ export default function MeetingConsole() {
       if (!alive) return;
       setMeeting(m);
       setStatus(m.status);
-      const [t, s] = await Promise.all([api.transcript(id), api.suggestions(id)]);
-      if (!alive) return;
-      setSegments(t);
-      setSuggestions(s);
+      if (m.status === "ended") {
+        // Completed meeting: collapse the transcript + suggestions and defer loading until expanded.
+        setOpenTx(false);
+        setOpenSug(false);
+      } else {
+        const [t, s] = await Promise.all([api.transcript(id), api.suggestions(id)]);
+        if (!alive) return;
+        setSegments(t);
+        setSuggestions(s);
+        loadedTx.current = true;
+        loadedSug.current = true;
+      }
       api.listActions(id).then((acts) => alive && setActions(acts)).catch(() => {});
       api.meetingPrepRecord(id).then((p) => alive && p.found && setPrep(p)).catch(() => {});
       api.meetingInsights(id).then((r) => alive && setInsights(r.insights || [])).catch(() => {});
@@ -261,7 +280,7 @@ export default function MeetingConsole() {
       <div className="console">
         {/* Transcript */}
         <div className="panel">
-          <div className="panel-head">
+          <div className="panel-head" onClick={toggleTx} style={{ cursor: "pointer" }}>
             <span style={{ fontSize: 16 }}>🎧</span>
             <h3>Live transcript</h3>
             <span className="spacer" style={{ flex: 1 }} />
@@ -272,7 +291,9 @@ export default function MeetingConsole() {
                 <i />
               </span>
             )}
+            <span className="pill" aria-hidden="true">{openTx ? "▾" : "▸"}</span>
           </div>
+          {openTx && (
           <div className="panel-body transcript-body" ref={transcriptRef}>
             {segments.length === 0 && (
               <div className="empty">Waiting for the meeting to start…</div>
@@ -306,16 +327,19 @@ export default function MeetingConsole() {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* Copilot suggestions */}
         <div className="panel">
-          <div className="panel-head">
+          <div className="panel-head" onClick={toggleSug} style={{ cursor: "pointer" }}>
             <span style={{ fontSize: 16 }}>💡</span>
             <h3>Copilot suggestions</h3>
             <span className="spacer" style={{ flex: 1 }} />
             <span className="pill">{suggestions.length}</span>
+            <span className="pill" aria-hidden="true">{openSug ? "▾" : "▸"}</span>
           </div>
+          {openSug && (
           <div className="panel-body suggest-body" ref={suggestRef}>
             <MeetingAsk
               meetingId={id}
@@ -335,6 +359,7 @@ export default function MeetingConsole() {
               ))
             )}
           </div>
+          )}
         </div>
       </div>
 
