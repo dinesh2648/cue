@@ -583,3 +583,37 @@ code { background: var(--bg-2); border: 1px solid var(--border); border-radius: 
 .cue-content-dark .pill.live { color: #ffb3b3; border-color: rgba(193,48,48,0.45); background: rgba(193,48,48,0.16); }
 .cue-content-dark .pill.live .led { background: #ff5a5a; }
 .cue-content-dark code { background: rgba(255,255,255,0.08); }
+
+/* ── Chips/badges tuned for the dark live console ─────────────────────────────
+   These use fixed light tints + dark text (for the light theme) that don't flip
+   with the scoped variables, so brighten them for legibility on the dark surface. */
+.cue-content-dark .fam-contract { background: rgba(199,122,0,0.20); color: #FFCF8A; }
+.cue-content-dark .fam-security { background: rgba(31,138,91,0.22); color: #7EE6B6; }
+.cue-content-dark .fam-support  { background: rgba(193,48,48,0.20); color: #FF9D9D; }
+.cue-content-dark .fam-product  { background: rgba(51,92,255,0.24); color: #A9C0FF; }
+.cue-content-dark .fam-pricing  { background: rgba(89,134,255,0.22); color: #A9C0FF; }
+.cue-content-dark .fam-renewal  { background: rgba(51,92,255,0.24); color: #A9C0FF; }
+.cue-content-dark .fam-general  { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.8); }
+
+.cue-content-dark .trust.ok    { background: rgba(31,138,91,0.22); color: #7EE6B6; }
+.cue-content-dark .trust.warn  { background: rgba(199,122,0,0.22); color: #FFCF8A; }
+.cue-content-dark .trust.scope { background: rgba(51,92,255,0.24); color: #A9C0FF; }
+.cue-content-dark .trust.demo  { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.75); }
+
+.cue-content-dark .engine-badge.claude  { background: rgba(51,92,255,0.24); color: #A9C0FF; }
+.cue-content-dark .engine-badge.fast    { background: rgba(89,134,255,0.22); color: #A9C0FF; }
+.cue-content-dark .engine-badge.offline { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.7); }
+.cue-content-dark .refining { color: #A9C0FF; background: linear-gradient(90deg, rgba(51,92,255,0.14), rgba(51,92,255,0.32), rgba(51,92,255,0.14)); background-size: 200% 100%; }
+
+.cue-content-dark .action-btn { background: rgba(51,92,255,0.18); border-color: rgba(255,255,255,0.14); color: #CDD9FF; }
+.cue-content-dark .action-btn:hover { background: rgba(51,92,255,0.28); }
+.cue-content-dark .action-btn.done { background: rgba(31,138,91,0.22); border-color: rgba(31,138,91,0.45); color: #7EE6B6; }
+
+.cue-content-dark .env-list.warn li::before { color: #FFCF8A; }
+.cue-content-dark .sum-list.risk li { color: #FF9D9D; }
+.cue-content-dark .metric .v.good, .cue-content-dark .kpi-delta.good { color: #7EE6B6; }
+.cue-content-dark .crm-banner { background: rgba(31,138,91,0.18); border-color: rgba(31,138,91,0.4); color: #7EE6B6; }
+
+/* Solid red "End & summarize" button on dark (matches the comp's REC-red action) */
+.cue-content-dark .btn.danger { background: rgba(193,48,48,0.92); border-color: transparent; color: #fff; }
+.cue-content-dark .btn.danger:hover { background: #C13030; }
