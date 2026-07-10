@@ -156,7 +156,7 @@ export default function AskPage() {
         <div ref={endRef} />
       </div>
 
-      <div style={{ position: "sticky", bottom: 0, background: "var(--bg, #0b0f1a)", paddingBottom: 16, display: "flex", gap: 10 }}>
+      <div style={{ position: "sticky", bottom: 0, background: "var(--bg, #EEF3FF)", paddingBottom: 16, display: "flex", gap: 10 }}>
         <textarea
           className="meet-input"
           style={{ flex: 1, minHeight: 52, resize: "vertical", fontFamily: "inherit" }}
