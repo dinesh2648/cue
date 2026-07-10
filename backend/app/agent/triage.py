@@ -31,7 +31,10 @@ _SYSTEM = (
     "opinions, acknowledgements ('sounds good'), greetings, small talk, and thinking-out-loud — "
     "and CRUCIALLY false for social pleasantries and well-wishes EVEN when phrased as a question, "
     "e.g. 'hope you're doing well?', 'hope all is okay?', 'how was your weekend?', 'how are you?', "
-    "'hope you had a good break?'. These are rapport, not information requests — do not answer them.\n"
+    "'hope you had a good break?'. These are rapport, not information requests — do not answer them. "
+    "ALSO false for interpersonal asides and meeting logistics directed at a participant, e.g. "
+    "'Amir, sorry, did you want that?', 'can you hear me?', 'are you on mute?', 'can you see my "
+    "screen?', 'say that again?', 'over to you' — these are not questions for the AI.\n"
     "When true, write 'query' as a concise standalone question — resolve pronouns like 'it/they/"
     "that' from the context — and pick the best intent_type. Always call the classify_turn tool."
 )

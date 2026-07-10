@@ -156,6 +156,14 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
             await inprocess_read_tokens(db, meeting.owner_user_id) if meeting.owner_user_id else {}
         )
         deep_will_run = pack.has_deep(servers, has_inprocess=any(inproc.values()))
+        # Make "why did this answer come back offline/demo?" diagnosable: an offline answer means
+        # deep_will_run is False, i.e. this meeting's owner has NO reachable connectors.
+        log.info(
+            "deep decision meeting=%s owner=%s servers=[%s] inproc=[%s] deep_will_run=%s",
+            meeting_id, meeting.owner_user_id or "(none)",
+            ", ".join(s.get("name", "") for s in servers) or "-",
+            ", ".join(k for k, v in inproc.items() if v) or "-", deep_will_run,
+        )
 
         # Tier 1 — instant grounded answer (the SLA-critical path).
         t0 = time.perf_counter()

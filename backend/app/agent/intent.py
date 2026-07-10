@@ -138,6 +138,25 @@ _SMALLTALK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Meeting LOGISTICS / audio-video checks — never a question for the copilot, so suppress even
+# though they parse as "can you …" requests. ("can you hear me?", "you're on mute", "say that again")
+_LOGISTICS_RE = re.compile(
+    r"\b(can you hear|can you see|do you see|can everyone (see|hear)|you hear me|hear me|"
+    r"see my screen|seeing my screen|sharing my screen|screen share|on mute|you'?re? muted|"
+    r"i'?m muted|un ?mute|lost you|you cut out|cutting out|breaking up|frozen|"
+    r"say that again|come again|can you repeat|repeat that|didn'?t catch)\b",
+    re.IGNORECASE,
+)
+
+# Interpersonal asides directed at a participant — not questions for the copilot ("Amir, sorry,
+# did you want that?", "over to you"). Suppressed unless a genuine request rides along (_REQUEST_RE).
+_ASIDE_RE = re.compile(
+    r"\b(sorry|did you want|do you want|you want (that|this|it|me to)|are you there|you there|"
+    r"you with us|still there|you okay|you good|all good|go ahead|over to you|after you|go on|"
+    r"my bad|no worries|one sec|hang on|bear with)\b",
+    re.IGNORECASE,
+)
+
 
 def _needs_answer(text: str) -> bool:
     """True only when the utterance is an actual question or request for info/action —
@@ -146,12 +165,17 @@ def _needs_answer(text: str) -> bool:
     low = t.lower()
     if len(t.split()) < 3:
         return False
+    if _LOGISTICS_RE.search(low):  # audio/video/logistics — never for the copilot
+        return False
     has_signal = ("?" in t) or bool(_QUESTION_START_RE.match(t)) or bool(_REQUEST_RE.search(low))
     if not has_signal:
         return False
     # "hey, how are you?" / "hope you're doing well?" — parse as questions but are small talk
     # with no real ask. A genuine request alongside the greeting still fires (via _REQUEST_RE).
     if _SMALLTALK_RE.match(low) and not _REQUEST_RE.search(low) and len(t.split()) <= 12:
+        return False
+    # Interpersonal asides / logistics ("did you want that?", "can you hear me?") — not for the AI.
+    if _ASIDE_RE.search(low) and not _REQUEST_RE.search(low) and len(t.split()) <= 14:
         return False
     return True
 
