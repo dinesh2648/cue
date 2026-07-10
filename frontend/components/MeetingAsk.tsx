@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import type { AskResult } from "@/lib/types";
+import type { AskResult, Segment } from "@/lib/types";
 
 const SUGGESTED = [
   "Summarize the discussion so far",
@@ -12,8 +12,19 @@ const SUGGESTED = [
   "What should I say next?",
 ];
 
-// Live "Ask AI" during a meeting — grounded in the meeting context + the asker's connected tools.
-export default function MeetingAsk({ meetingId }: { meetingId: string }) {
+// Live "Ask AI" during a meeting — grounded in the whole conversation, earlier answers, and the
+// asker's connected tools. Tag transcript lines to ask about them specifically.
+export default function MeetingAsk({
+  meetingId,
+  tagged = [],
+  onUntag,
+  onClearTags,
+}: {
+  meetingId: string;
+  tagged?: Segment[];
+  onUntag?: (id: string) => void;
+  onClearTags?: () => void;
+}) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<AskResult | null>(null);
@@ -25,7 +36,8 @@ export default function MeetingAsk({ meetingId }: { meetingId: string }) {
     setBusy(true);
     setErr(null);
     try {
-      setRes(await api.ask(text, "", meetingId));
+      const selection = tagged.map((t) => `${t.speaker}: ${t.text}`);
+      setRes(await api.ask(text, "", meetingId, selection));
     } catch {
       setErr("Couldn't reach the advisor. Try again.");
     } finally {
@@ -35,6 +47,18 @@ export default function MeetingAsk({ meetingId }: { meetingId: string }) {
 
   return (
     <div className="meeting-ask">
+      {tagged.length > 0 && (
+        <div className="ma-tags">
+          <span className="ma-tags-label">Asking about {tagged.length} tagged line{tagged.length > 1 ? "s" : ""}:</span>
+          {tagged.map((t) => (
+            <span key={t.id} className="ma-tag" title={t.text}>
+              <b>{t.speaker}:</b> {t.text.length > 48 ? t.text.slice(0, 48) + "…" : t.text}
+              <button className="ma-tag-x" onClick={() => onUntag?.(t.id)} title="Remove">✕</button>
+            </span>
+          ))}
+          <button className="ma-tags-clear" onClick={() => onClearTags?.()}>clear all</button>
+        </div>
+      )}
       <div className="ma-row">
         <input
           className="ma-input"

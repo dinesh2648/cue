@@ -30,6 +30,9 @@ export default function MeetingConsole() {
   const [prep, setPrep] = useState<MeetingPrepRecord | null>(null);
   const [prepOpen, setPrepOpen] = useState(false);
   const [insights, setInsights] = useState<Insight[]>([]);
+  const [tagged, setTagged] = useState<Segment[]>([]);
+  const toggleTag = (seg: Segment) =>
+    setTagged((prev) => (prev.some((t) => t.id === seg.id) ? prev.filter((t) => t.id !== seg.id) : [...prev, seg]));
 
   const flash = (m: string) => {
     setToast(m);
@@ -269,12 +272,24 @@ export default function MeetingConsole() {
             {segments.length === 0 && (
               <div className="empty">Waiting for the meeting to start…</div>
             )}
-            {segments.map((seg) => (
-              <div key={seg.id} className={`turn ${seg.role}`}>
-                <span className="who">{seg.speaker}</span>
-                <div className="bubble">{seg.text}</div>
-              </div>
-            ))}
+            {segments.map((seg) => {
+              const isTagged = tagged.some((t) => t.id === seg.id);
+              return (
+                <div key={seg.id} className={`turn ${seg.role} ${isTagged ? "tagged" : ""}`}>
+                  <span className="who">{seg.speaker}</span>
+                  <div className="bubble">
+                    {seg.text}
+                    <button
+                      className="tag-btn"
+                      title={isTagged ? "Untag — remove from your question" : "Tag this line to ask the AI about it"}
+                      onClick={() => toggleTag(seg)}
+                    >
+                      {isTagged ? "✓ tagged" : "＋ ask"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
             {thinking && (
               <div className="turn customer">
                 <span className="who">Copilot</span>
@@ -297,7 +312,12 @@ export default function MeetingConsole() {
             <span className="pill">{suggestions.length}</span>
           </div>
           <div className="panel-body suggest-body" ref={suggestRef}>
-            <MeetingAsk meetingId={id} />
+            <MeetingAsk
+              meetingId={id}
+              tagged={tagged}
+              onUntag={(tid) => setTagged((prev) => prev.filter((t) => t.id !== tid))}
+              onClearTags={() => setTagged([])}
+            />
             <InsightsPanel insights={insights} />
             {suggestions.length === 0 ? (
               <div className="empty">

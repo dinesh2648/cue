@@ -195,6 +195,20 @@ button { font-family: inherit; cursor: pointer; }
 .ma-text { font-size: 13.2px; line-height: 1.55; white-space: pre-wrap; }
 .ma-meta { margin-top: 8px; font-size: 11px; color: var(--faint); }
 .ma-err { margin-top: 8px; font-size: 12px; color: #e5484d; }
+.ma-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+.ma-tags-label { font-size: 11.5px; color: var(--faint); font-weight: 600; }
+.ma-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 320px; font-size: 11.5px; padding: 3px 8px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent); color: var(--text); }
+.ma-tag b { font-weight: 700; }
+.ma-tag-x { border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 11px; padding: 0 1px; }
+.ma-tag-x:hover { color: var(--text); }
+.ma-tags-clear { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; text-decoration: underline; }
+/* Tag-a-line control on transcript turns */
+.turn .bubble { position: relative; }
+.tag-btn { display: none; margin-left: 8px; vertical-align: middle; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.turn:hover .tag-btn { display: inline-block; }
+.tag-btn:hover { border-color: var(--accent); color: var(--text); }
+.turn.tagged .tag-btn { display: inline-block; border-color: var(--accent); color: var(--accent); }
+.turn.tagged .bubble { box-shadow: inset 0 0 0 1px var(--accent); }
 .sources { display: flex; flex-wrap: wrap; gap: 7px; }
 .source-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; font-size: 12px; background: var(--bg-2); border: 1px solid var(--border); color: var(--muted); }
 .source-chip .ic { font-size: 12px; }

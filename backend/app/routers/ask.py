@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from ..connectors import live_sources
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import get_db
-from ..models import KnowledgeDoc, Meeting, TranscriptSegment, User
+from ..models import KnowledgeDoc, Meeting, Suggestion, TranscriptSegment, User
 from ..packs.registry import get_pack, pack_for_team
 from ..security.auth import get_current_user, visible_user_ids
 
@@ -31,6 +31,7 @@ class AskRequest(BaseModel):
     query: str
     context: str = ""  # optional prior turns, so follow-ups resolve ("what about that repo?")
     meeting_id: str | None = None  # live in-meeting Ask — grounds the answer in the meeting
+    selection: list[str] = []  # transcript lines the user tagged to ask specifically about
 
 
 def _doc_catalog(db: Session) -> list[dict]:
@@ -72,15 +73,37 @@ async def ask(
             or (user.email and user.email in (meeting.attendees or []))
         ):
             ctx.crm_company_id = meeting.crm_company_id
+            # The whole-meeting summary + decisions/entities ride in via the meeting state below;
+            # here we stack the specific context: tagged lines → earlier answers → recent transcript.
             ctx.running_summary = meeting.running_summary or ""
             ctx.context_json = meeting.context_json or {}
+            parts: list[str] = []
+            # 1) Lines the user tagged — what they're asking *about*, front and center.
+            sel = [s.strip() for s in (body.selection or []) if s and s.strip()][:20]
+            if sel:
+                parts.append(
+                    "The user tagged these lines from the transcript and is asking specifically "
+                    "about them:\n" + "\n".join(f"> {s[:400]}" for s in sel)
+                )
+            # 2) Earlier copilot answers this meeting, so follow-ups build on them (not repeat).
+            prior = list(db.scalars(
+                select(Suggestion).where(Suggestion.meeting_id == meeting.id)
+                .order_by(Suggestion.created_at.desc()).limit(8)
+            ))
+            qa = "\n".join(f"Q: {s.query_text}\nA: {s.answer[:300]}" for s in reversed(prior) if s.answer)
+            if qa:
+                parts.append("Earlier answers the copilot already gave in this meeting:\n" + qa)
+            # 3) Recent transcript (wide window; the running summary above covers the rest).
             segs = list(db.scalars(
                 select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting.id)
-                .order_by(TranscriptSegment.ts.desc()).limit(14)
+                .order_by(TranscriptSegment.ts.desc()).limit(40)
             ))
             if segs:
                 convo = "\n".join(f"{s.speaker} ({s.role}): {s.text}" for s in reversed(segs))
-                extra_context = (f"Recent meeting transcript:\n{convo}\n\n{extra_context}").strip()
+                parts.append(f"Recent meeting transcript:\n{convo}")
+            if body.context:
+                parts.append(body.context)
+            extra_context = "\n\n".join(parts).strip()
     servers = await active_mcp_servers(db, user.id)
     inproc = await inprocess_read_tokens(db, user.id)
 
