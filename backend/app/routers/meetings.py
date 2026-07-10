@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..actions import service as action_service
@@ -259,10 +259,16 @@ def intents(meeting_id: str, user: User = Depends(get_current_user), db: Session
 @router.get("/{meeting_id}/suggestions", response_model=list[SuggestionOut])
 def suggestions(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Suggestion]:
     _authorized(db, meeting_id, user)
+    # Personalized per participant: each user sees their OWN answers (recipient == them), plus any
+    # legacy/shared ones (recipient NULL). This is what makes two people in the same meeting get
+    # their own grounded answers rather than a single shared card.
     return list(
         db.scalars(
             select(Suggestion)
-            .where(Suggestion.meeting_id == meeting_id)
+            .where(
+                Suggestion.meeting_id == meeting_id,
+                or_(Suggestion.recipient_user_id == user.id, Suggestion.recipient_user_id.is_(None)),
+            )
             .order_by(Suggestion.created_at)
         )
     )

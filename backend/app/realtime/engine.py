@@ -11,14 +11,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
 from ..advisor import insights, meeting_context
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..db import SessionLocal
-from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment
-from ..packs.registry import get_pack, pack_for_owner
+from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment, User
+from ..packs.registry import get_pack, pack_for_owner, pack_for_team
 from .manager import manager
 from .simulator import get_scenario
 
@@ -104,21 +105,25 @@ async def _update_context_and_insights(meeting_id: str) -> None:
 
 
 async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
-    """Intent → two-tier answer for one customer turn. Runs detached from ingestion."""
+    """Triage one customer turn (user-agnostic), then generate a PERSONALIZED answer for each
+    connected participant + the owner, routed to each. Detached from ingestion.
+
+    Triage ("is this a question / what is it") is shared work — done once. The expensive per-user
+    part (retrieval + deep answer over THAT person's connectors/role) is fanned out, so two people
+    in the same meeting each get answers grounded in their own sources, not one generic answer.
+    """
     db = SessionLocal()
     try:
         meeting = db.get(Meeting, meeting_id)
         if meeting is None:
             return
-        # Drive suggestions by the OWNER's current team (Sales vs Tech), and keep the stored
-        # pack in sync so the UI + downstream summary/scorecard match.
+        # Keep the stored pack in sync with the owner's team (UI + summary framing).
         pack_key = pack_for_owner(db, meeting)
         if meeting.pack != pack_key:
             meeting.pack = pack_key
             db.commit()
         pack = get_pack(pack_key)
 
-        # ── Layer 1: triage (FR-003) — does this turn need an answer? ────────
         # Recent context (last few turns, excluding this one) helps resolve pronouns.
         rows = db.scalars(
             select(TranscriptSegment)
@@ -128,102 +133,105 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
         ).all()
         recent = [f"{s.role}: {s.text}" for s in rows if s.id != seg_id][:6][::-1]
 
+        # ── Layer 1: triage ONCE (FR-003) — user-agnostic; shared across participants. ──
         intent_res = await pack.classify(text, recent)
         query = intent_res.query_text or text  # standalone query (pronouns resolved)
         await manager.broadcast(
             meeting_id,
-            {
-                "type": "intent",
-                "data": {
-                    "intent_type": intent_res.intent_type,
-                    "family": intent_res.family,
-                    "confidence": intent_res.confidence,
-                    "query_text": query,
-                    "actionable": intent_res.actionable,
-                },
-            },
+            {"type": "intent", "data": {
+                "intent_type": intent_res.intent_type, "family": intent_res.family,
+                "confidence": intent_res.confidence, "query_text": query,
+                "actionable": intent_res.actionable,
+            }},
         )
         if not intent_res.actionable:
             return
 
-        # ── Two-tier answer (FR-004 → FR-006) ────────────────────────────────
-        doc_catalog = _doc_catalog(db)
-        servers = (
-            await active_mcp_servers(db, meeting.owner_user_id) if meeting.owner_user_id else []
+        intent_row = Intent(
+            meeting_id=meeting_id, segment_id=seg_id, intent_type=intent_res.intent_type,
+            query_text=query, confidence=intent_res.confidence,
         )
-        # In-process sources (Gmail/Drive/Slack) have no hosted MCP but still power a deep answer.
-        inproc = (
-            await inprocess_read_tokens(db, meeting.owner_user_id) if meeting.owner_user_id else {}
-        )
+        db.add(intent_row)
+        db.commit()
+        intent_id = intent_row.id
+        owner_id = meeting.owner_user_id
+        # Answer for every connected participant + the owner (owner = canonical record for summary).
+        recipients = {
+            r for r in (manager.subscriber_ids(meeting_id) | ({owner_id} if owner_id else set())) if r
+        }
+    except Exception as exc:  # pragma: no cover
+        log.exception("triage failed for meeting %s: %s", meeting_id, exc)
+        return
+    finally:
+        db.close()
+
+    if not recipients:
+        return
+    # Fan out per participant — each in its own DB session for safe concurrency.
+    await asyncio.gather(
+        *[_answer_for_user(meeting_id, uid, query, intent_res, intent_id, recent) for uid in recipients],
+        return_exceptions=True,
+    )
+
+
+async def _answer_for_user(
+    meeting_id: str, user_id: str, query: str, intent_res, intent_id: str, recent: list[str]
+) -> None:
+    """Fast + deep answer grounded in ONE participant's connectors/role/profile, routed to them."""
+    db = SessionLocal()
+    try:
+        meeting = db.get(Meeting, meeting_id)
+        if meeting is None:
+            return
+        user = db.get(User, user_id) if user_id else None
+        pack = get_pack(pack_for_team(user.team) if user else pack_for_owner(db, meeting))
+        servers = await active_mcp_servers(db, user_id) if user_id else []
+        inproc = await inprocess_read_tokens(db, user_id) if user_id else {}
         deep_will_run = pack.has_deep(servers, has_inprocess=any(inproc.values()))
-        # Make "why did this answer come back offline/demo?" diagnosable: an offline answer means
-        # deep_will_run is False, i.e. this meeting's owner has NO reachable connectors.
         log.info(
-            "deep decision meeting=%s owner=%s servers=[%s] inproc=[%s] deep_will_run=%s",
-            meeting_id, meeting.owner_user_id or "(none)",
+            "deep decision meeting=%s user=%s servers=[%s] inproc=[%s] deep_will_run=%s",
+            meeting_id, user_id or "(none)",
             ", ".join(s.get("name", "") for s in servers) or "-",
             ", ".join(k for k, v in inproc.items() if v) or "-", deep_will_run,
         )
 
-        # Tier 1 — instant grounded answer (the SLA-critical path).
-        t0 = time.perf_counter()
-        fast = await pack.fast_answer(
-            db=db, meeting=meeting, text=query, intent=intent_res, doc_catalog=doc_catalog
+        # Per-user view: shared meeting-level state, but owner_user_id = THIS participant so the
+        # retrieval orchestrator + advisory preamble + role-scoping all key to their own sources.
+        mview = SimpleNamespace(
+            id=meeting.id, owner_user_id=user_id, crm_company_id=meeting.crm_company_id,
+            running_summary=meeting.running_summary, context_json=meeting.context_json,
         )
+
+        t0 = time.perf_counter()
+        fast = await pack.fast_answer(db=db, meeting=mview, text=query, intent=intent_res, doc_catalog=_doc_catalog(db))
         fast_latency = int((time.perf_counter() - t0) * 1000)
 
-        intent_row = Intent(
-            meeting_id=meeting_id,
-            segment_id=seg_id,
-            intent_type=intent_res.intent_type,
-            query_text=query,
-            confidence=intent_res.confidence,
-        )
-        db.add(intent_row)
-        db.commit()
-
         sugg = Suggestion(
-            meeting_id=meeting_id,
-            intent_id=intent_row.id,
-            intent_type=intent_res.intent_type,
-            query_text=query,
-            answer=fast["answer"],
-            evidence=fast["evidence"],
-            sources=fast["sources"],
-            actions=fast["actions"],
-            confidence=fast["confidence"],
-            latency_ms=fast_latency,
-            engine="fast" if deep_will_run else "offline",
-            grounded=fast.get("grounded", True),
-            access_scope="demo",  # fast tier = local CRM/retrieval
+            meeting_id=meeting_id, recipient_user_id=user_id, intent_id=intent_id,
+            intent_type=intent_res.intent_type, query_text=query,
+            answer=fast["answer"], evidence=fast["evidence"], sources=fast["sources"],
+            actions=fast["actions"], confidence=fast["confidence"], latency_ms=fast_latency,
+            engine="fast" if deep_will_run else "offline", grounded=fast.get("grounded", True),
+            access_scope="demo",
         )
         db.add(sugg)
-        db.add(
-            AuditLog(
-                actor="copilot",
-                action="suggestion.fast",
-                resource=meeting_id,
-                detail={"intent": intent_res.intent_type, "latency_ms": fast_latency},
-            )
-        )
+        db.add(AuditLog(
+            actor="copilot", action="suggestion.fast", resource=meeting_id,
+            detail={"user": user_id, "intent": intent_res.intent_type, "latency_ms": fast_latency},
+        ))
         db.commit()
-
-        await manager.broadcast(
-            meeting_id,
-            {"type": "suggestion", "data": _sugg_payload(sugg, deep_pending=deep_will_run)},
+        await manager.send_to_user(
+            meeting_id, user_id, {"type": "suggestion", "data": _sugg_payload(sugg, deep_pending=deep_will_run)}
         )
 
-        # Tier 2 — deepen with the Claude agentic loop, then upgrade the card in place.
+        # Tier 2 — deepen over this user's tools + the shared meeting state, then upgrade in place.
         if deep_will_run:
             t1 = time.perf_counter()
-            # Prepend the evolving meeting state so the answer reasons over the WHOLE meeting
-            # (decisions, open questions, entities), not just the last few lines.
-            mc = meeting_context.render(meeting)
+            mc = meeting_context.render(mview)
             convo = "\n".join(recent)
             full_ctx = f"{mc}\n\n{convo}".strip() if mc else convo
             deep = await pack.deep_answer(
-                db=db, meeting=meeting, text=query, intent=intent_res, servers=servers,
-                context=full_ctx,
+                db=db, meeting=mview, text=query, intent=intent_res, servers=servers, context=full_ctx
             )
             deep_latency = int((time.perf_counter() - t1) * 1000)
             if deep:
@@ -243,12 +251,11 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
             else:
                 sugg.engine = "offline"  # deep failed; keep the fast answer
             db.commit()
-            await manager.broadcast(
-                meeting_id,
-                {"type": "suggestion_update", "data": _sugg_payload(sugg, deep_pending=False)},
+            await manager.send_to_user(
+                meeting_id, user_id, {"type": "suggestion_update", "data": _sugg_payload(sugg, deep_pending=False)}
             )
-    except Exception as exc:  # pragma: no cover - background task must not crash silently
-        log.exception("agent turn failed for meeting %s: %s", meeting_id, exc)
+    except Exception as exc:  # pragma: no cover - one participant's failure must not affect others
+        log.exception("answer for user %s (meeting %s) failed: %s", user_id, meeting_id, exc)
     finally:
         db.close()
 

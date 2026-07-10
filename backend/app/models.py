@@ -94,6 +94,9 @@ class Suggestion(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    # Who this answer was generated FOR — shared meetings personalize per participant (each user's
+    # own connectors/role). NULL = legacy/shared (visible to all). Answers route to this user only.
+    recipient_user_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     intent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     intent_type: Mapped[str] = mapped_column(String(48), default="")
     query_text: Mapped[str] = mapped_column(Text, default="")

@@ -190,7 +190,7 @@ async def meeting_ws(ws: WebSocket, meeting_id: str, token: str | None = Query(d
     finally:
         db.close()
 
-    await manager.connect(meeting_id, ws)
+    await manager.connect(meeting_id, ws, user.id if user else None)
     try:
         while True:
             msg = await ws.receive_json()

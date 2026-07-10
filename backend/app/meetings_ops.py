@@ -47,7 +47,14 @@ async def finalize_meeting(db: Session, meeting: Meeting, *, with_scorecard: boo
     )
     transcript_text = "\n".join(f"{s.speaker} ({s.role}): {s.text}" for s in segments)
     intent_rows = list(db.scalars(select(Intent).where(Intent.meeting_id == meeting_id)))
-    suggestion_rows = list(db.scalars(select(Suggestion).where(Suggestion.meeting_id == meeting_id)))
+    # Per-participant answers are personalized; the meeting's canonical summary uses the OWNER's set
+    # (plus any legacy/shared rows) so it's one coherent record, not a blend of everyone's views.
+    suggestion_rows = list(db.scalars(
+        select(Suggestion).where(
+            Suggestion.meeting_id == meeting_id,
+            or_(Suggestion.recipient_user_id == meeting.owner_user_id, Suggestion.recipient_user_id.is_(None)),
+        )
+    ))
     crm = hubspot.company_context(db, meeting.crm_company_id)
 
     # Prior conversations with this same client (by CRM company, else by name).
