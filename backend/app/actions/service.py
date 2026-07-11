@@ -131,6 +131,64 @@ def reject(db: Session, action: ProposedAction, approver: str) -> ProposedAction
     return action
 
 
+def is_undoable(action: ProposedAction) -> bool:
+    """Whether an executed write can be reversed — delegates to the model's own verdict."""
+    return bool(getattr(action, "undoable", False))
+
+
+async def _reverse(db: Session, action: ProposedAction) -> str:
+    """Call the provider to remove what this action created. Returns a human detail string."""
+    meeting = db.get(Meeting, action.meeting_id)
+    owner = meeting.owner_user_id if meeting else None
+    res = action.result or {}
+    kind = action.kind
+
+    async def _need(provider: str) -> str:
+        tok = await _token(db, owner, provider)
+        if not tok:
+            raise RuntimeError(f"Connect {provider} to undo this.")
+        return tok
+
+    if kind in ("note", "task"):
+        await hubspot.delete_object(await _need("hubspot"), "notes" if kind == "note" else "tasks", res["hubspot_id"])
+        return f"Deleted the HubSpot {kind}."
+    if kind == "jira_ticket":
+        from ..integrations import jira
+        await jira.delete_issue(await _need("jira"), res["key"])
+        return f"Deleted Jira issue {res['key']}."
+    if kind == "notion_doc":
+        from ..integrations import notion
+        await notion.archive_page(await _need("notion"), res["page_id"])
+        return "Archived the Notion page."
+    if kind == "reminder":
+        from ..integrations import google_calendar
+        await google_calendar.delete_event(await _need("google_calendar"), res["event_id"])
+        return "Removed the calendar event."
+    if kind == "email":
+        if res.get("sent"):
+            raise RuntimeError("A sent email can't be unsent.")
+        from ..integrations import gmail
+        await gmail.delete_draft(await _need("gmail"), res["draft_id"])
+        return "Deleted the Gmail draft."
+    raise RuntimeError("This action can't be undone.")
+
+
+async def undo(db: Session, action: ProposedAction, approver: str) -> ProposedAction:
+    """Reverse an executed write (delete/archive the created object) if possible."""
+    if not is_undoable(action):
+        raise RuntimeError("This action can't be undone.")
+    detail = await _reverse(db, action)
+    action.status = "undone"
+    action.result = {**(action.result or {}), "undo": {"detail": detail}, "status": detail}
+    action.decided_at = _now()
+    db.add(AuditLog(
+        actor=approver, action="action.undone", resource=action.meeting_id,
+        detail={"key": action.action_key, "kind": action.kind},
+    ))
+    db.commit()
+    return action
+
+
 def _record(db: Session, meeting_id: str, kind: str, payload: dict, status: str) -> CRMSyncRecord:
     rec = CRMSyncRecord(meeting_id=meeting_id, object_type=kind, payload=payload, status=status)
     db.add(rec)
@@ -204,7 +262,7 @@ async def _execute(db: Session, action: ProposedAction) -> dict:
         token = await _token(db, owner, "google_calendar")
         if token:
             res = await google_calendar.create_event(token, p.get("title") or action.title, p.get("detail", ""))
-            return {"type": "reminder", "url": res.get("url"), "status": "added to Google Calendar"}
+            return {"type": "reminder", "event_id": res.get("id"), "url": res.get("url"), "status": "added to Google Calendar"}
         rec = _record(db, action.meeting_id, kind, p, "pending")
         return {"type": "reminder", "crm_id": rec.id, "status": "connect Google Calendar to schedule"}
 

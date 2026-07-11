@@ -57,6 +57,14 @@ async def create_event(token: str, title: str, description: str = "", in_hours: 
     return {"id": data.get("id"), "url": data.get("htmlLink", "")}
 
 
+async def delete_event(token: str, event_id: str) -> None:
+    """Undo a calendar write — delete an event by id. 404/410 = already gone (treated as done)."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.delete(f"{_EVENTS_URL}/{event_id}", headers={"Authorization": f"Bearer {token}"})
+        if resp.status_code not in (200, 204, 404, 410):
+            resp.raise_for_status()
+
+
 async def list_upcoming(token: str, max_results: int = 8, days: int = 30) -> list[dict]:
     """Upcoming events on the user's primary calendar, soonest first.
 

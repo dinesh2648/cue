@@ -130,6 +130,16 @@ async def send_message(token: str, to: str, subject: str, body: str) -> dict:
         return r.json()
 
 
+async def delete_draft(token: str, draft_id: str) -> None:
+    """Undo a Gmail draft — delete it by id. 404 = already gone (treated as done)."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        r = await c.delete(f"{_BASE}/drafts/{draft_id}", headers=_headers(token))
+        if r.status_code in (401, 403):
+            raise RuntimeError("Gmail draft delete not authorized — reconnect Gmail.")
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
+
 async def create_draft(token: str, to: str, subject: str, body: str) -> dict:
     """Create a Gmail draft in the user's mailbox (needs gmail.compose). Returns {id, message}."""
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:

@@ -15,6 +15,11 @@ import MeetingHealthBadge from "@/components/MeetingHealthBadge";
 import ScorecardPanel from "@/components/ScorecardPanel";
 import { Markdown } from "@/components/MeetingPrepPanel";
 
+const ACTION_ICON: Record<string, string> = {
+  note: "📝", task: "✅", email: "✉️", jira_ticket: "🎫", notion_doc: "📑",
+  reminder: "⏰", document: "📎", workflow: "⚙️", ticket: "🎫", pr: "🔀",
+};
+
 export default function MeetingConsole() {
   const params = useParams();
   const id = String(params.id);
@@ -34,6 +39,7 @@ export default function MeetingConsole() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [tagged, setTagged] = useState<Segment[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
+  const [caps, setCaps] = useState<Record<string, boolean>>({});
   // Completed meetings open with the transcript + suggestions collapsed; loaded lazily on expand.
   const [openTx, setOpenTx] = useState(true);
   const [openSug, setOpenSug] = useState(true);
@@ -75,6 +81,10 @@ export default function MeetingConsole() {
     await api.approveAll(id);
     refreshActions();
   };
+  const undoAction = async (aid: string) => {
+    await api.undoAction(aid);
+    refreshActions();
+  };
 
   const wsRef = useRef<WebSocket | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +119,7 @@ export default function MeetingConsole() {
         loadedSug.current = true;
       }
       api.listActions(id).then((acts) => alive && setActions(acts)).catch(() => {});
+      api.me().then((me) => alive && setCaps(me.capabilities || {})).catch(() => {});
       api.meetingPrepRecord(id).then((p) => alive && p.found && setPrep(p)).catch(() => {});
       api.meetingInsights(id).then((r) => alive && setInsights(r.insights || [])).catch(() => {});
       if (m.status === "ended") {
@@ -371,11 +382,41 @@ export default function MeetingConsole() {
           onApprove={approveAction}
           onReject={rejectAction}
           onApproveAll={approveAll}
+          onUndo={undoAction}
           engineering={meeting?.pack === "tech"}
+          capabilities={caps}
         />
       )}
 
       {summary && <SummaryPanel summary={summary} />}
+
+      {caps.recap_links !== false && (() => {
+        const created = actions.filter((a) => a.status === "executed" || a.status === "undone");
+        if (!created.length) return null;
+        return (
+          <div className="card pad" style={{ marginTop: 22 }}>
+            <div className="section-title" style={{ marginBottom: 10 }}>✅ Created from this meeting</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {created.map((a) => {
+                const res = (a.result || {}) as Record<string, unknown>;
+                const url = String(res.url || "");
+                const st = String(res.status || "");
+                const undone = a.status === "undone";
+                return (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, opacity: undone ? 0.55 : 1 }}>
+                    <span>{ACTION_ICON[a.kind] ?? "•"}</span>
+                    <span style={{ flex: 1, minWidth: 0, textDecoration: undone ? "line-through" : "none" }}>{a.title}</span>
+                    {st && <span style={{ color: "var(--muted)", fontSize: 12 }}>{st}</span>}
+                    {url && !undone && (
+                      <a href={url} target="_blank" rel="noreferrer" className="btn ghost sm">open</a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {status === "ended" && <ScorecardPanel meetingId={id} />}
 

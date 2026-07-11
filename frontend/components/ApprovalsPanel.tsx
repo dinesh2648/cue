@@ -35,14 +35,19 @@ export default function ApprovalsPanel({
   onApprove,
   onReject,
   onApproveAll,
+  onUndo,
   engineering = false,
+  capabilities = {},
 }: {
   actions: ProposedAction[];
   onApprove: (id: string, payload?: Record<string, unknown>) => Promise<void>;
   onReject: (id: string) => Promise<void>;
   onApproveAll: () => Promise<void>;
+  onUndo?: (id: string) => Promise<void>;
   engineering?: boolean; // tech-team meeting → notes/tasks file into Jira, not the CRM
+  capabilities?: Record<string, boolean>;
 }) {
+  const cap = (k: string) => capabilities[k] !== false; // default-on if unknown
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -141,11 +146,16 @@ export default function ApprovalsPanel({
             );
           })()
         )}
-        {a.status === "executed" && result && Boolean(result.crm_id || result.url || result.status) && (
+        {a.status === "executed" && cap("action_confirmations") && result && Boolean(result.crm_id || result.url || result.status) && (
           <div style={{ marginTop: 8, fontSize: 12, color: "var(--green, #34d399)" }}>
             ✓ {result.status ? String(result.status) : "written"}
             {result.crm_id ? ` · id ${String(result.crm_id)}` : ""}
             {result.url ? <> · <a href={String(result.url)} target="_blank" rel="noreferrer">open</a></> : null}
+          </div>
+        )}
+        {a.status === "undone" && (
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>
+            ↩ {result?.status ? String(result.status) : "Undone — reversed the write."}
           </div>
         )}
         {a.status === "failed" && a.error && (
@@ -184,6 +194,7 @@ export default function ApprovalsPanel({
                     {EDITABLE[a.kind] && a.status === "proposed" && <span> · editable</span>}
                     {a.status === "executed" && <span className="ak-done"> · ✓ done</span>}
                     {a.status === "rejected" && <span className="ak-rej"> · rejected</span>}
+                    {a.status === "undone" && <span className="ak-rej"> · undone</span>}
                     {a.status === "failed" && <span className="ak-rej"> · failed</span>}
                   </span>
                 </span>
@@ -209,9 +220,21 @@ export default function ApprovalsPanel({
                   </button>
                 </div>
               ) : (
-                <span className={`pill ${a.status === "executed" ? "live" : ""}`}>
-                  {a.status === "executed" ? "approved" : a.status}
-                </span>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className={`pill ${a.status === "executed" ? "live" : ""}`}>
+                    {a.status === "executed" ? "approved" : a.status}
+                  </span>
+                  {a.status === "executed" && a.undoable && onUndo && cap("action_undo") && (
+                    <button
+                      className="btn sm"
+                      disabled={busy === a.id}
+                      onClick={wrap(a.id, () => onUndo(a.id))}
+                      title="Reverse this — delete/archive what was created"
+                    >
+                      {busy === a.id ? "Undoing…" : "Undo"}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             {open[a.id] && detail(a)}

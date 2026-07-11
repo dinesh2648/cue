@@ -43,12 +43,37 @@ def auth_config() -> dict:
 
 @router.get("/me")
 def me(user: User = Depends(get_current_user)) -> dict:
+    from .. import capabilities
+
     return {
         "id": user.id, "email": user.email, "name": user.name,
         "org_id": user.org_id, "role": user.role, "autopilot": user.autopilot,
         "team": user.team, "profile": user.profile or {}, "custom_context": user.custom_context or "",
         "language": user.language or "en",
+        "capabilities": capabilities.resolve(user),
+        "capability_catalog": capabilities.catalog(),
     }
+
+
+class CapabilitiesUpdate(BaseModel):
+    capabilities: dict[str, bool]  # partial patch — only the keys that changed
+
+
+@router.post("/me/capabilities")
+def set_capabilities(
+    body: CapabilitiesUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """Enable/disable individual copilot capabilities for the signed-in user."""
+    from .. import capabilities
+
+    cur = dict(user.capabilities or {})
+    for k, v in (body.capabilities or {}).items():
+        if k in capabilities.DEFAULTS:
+            cur[k] = bool(v)
+    user.capabilities = cur
+    db.add(user)
+    db.commit()
+    return {"capabilities": capabilities.resolve(user)}
 
 
 class ProfileUpdate(BaseModel):

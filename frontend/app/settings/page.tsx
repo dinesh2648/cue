@@ -42,6 +42,8 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [autopilot, setAutopilot] = useState<boolean | null>(null);
+  const [caps, setCaps] = useState<Record<string, boolean>>({});
+  const [capCatalog, setCapCatalog] = useState<{ key: string; label: string; description: string; default: boolean }[]>([]);
   const [prof, setProf] = useState({ ...emptyProfile });
   const [company, setCompany] = useState({ ...emptyCompany });
   const [canManageCompany, setCanManageCompany] = useState(false);
@@ -51,6 +53,8 @@ export default function SettingsPage() {
     api.org().then(setOrg).catch(() => {});
     api.me().then((m) => {
       setAutopilot(!!m.autopilot);
+      setCaps(m.capabilities || {});
+      setCapCatalog(m.capability_catalog || []);
       const p = m.profile || {};
       setProf({
         team: m.team || "sales", language: m.language || "en", designation: p.designation || "", manager_name: p.manager_name || "",
@@ -119,6 +123,18 @@ export default function SettingsPage() {
     }
   };
 
+  const toggleCapability = async (key: string) => {
+    const next = { ...caps, [key]: !(caps[key] ?? true) };
+    setCaps(next);
+    try {
+      await api.setCapabilities({ [key]: next[key] });
+    } catch {
+      setCaps(caps); // revert
+      setToast("Couldn't update that setting.");
+      setTimeout(() => setToast(null), 2600);
+    }
+  };
+
   const toggleAutopilot = async () => {
     const next = !autopilot;
     setAutopilot(next);
@@ -183,6 +199,7 @@ export default function SettingsPage() {
       <div className="settings-layout">
         <nav className="settings-nav">
           <a href="#s-autopilot">🤖 Auto-pilot</a>
+          <a href="#s-capabilities">🎛️ Capabilities</a>
           <a href="#s-profile">🧑‍💼 Your profile</a>
           <a href="#s-company">🏢 Company</a>
           <a href="#s-billing">💳 Plan &amp; billing</a>
@@ -221,6 +238,40 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <div id="s-capabilities" />
+      {/* Per-user capability toggles — enable/disable individual copilot behaviours */}
+      {capCatalog.length > 0 && (
+        <div className="card pad" style={{ marginBottom: 22 }}>
+          <div className="section-title" style={{ marginBottom: 4 }}>🎛️ Capabilities</div>
+          <p style={{ color: "var(--muted)", fontSize: 13.5, lineHeight: 1.6, marginTop: 0, marginBottom: 14 }}>
+            Turn individual copilot behaviours on or off. These apply to <b>your</b> account only.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {capCatalog.map((c) => {
+              const on = caps[c.key] ?? c.default;
+              return (
+                <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</div>
+                    <p style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.5, margin: "2px 0 0" }}>{c.description}</p>
+                  </div>
+                  <button
+                    role="switch"
+                    aria-checked={on}
+                    aria-label={`Toggle ${c.label}`}
+                    className={`switch ${on ? "on" : ""}`}
+                    onClick={() => toggleCapability(c.key)}
+                    title={`Toggle ${c.label}`}
+                  >
+                    <span className="switch-knob" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div id="s-profile" />
       {/* Your advisory profile — injected into every AI request */}

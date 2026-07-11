@@ -240,11 +240,26 @@ export interface ProposedAction {
   payload: Record<string, unknown>;
   write: boolean;
   autonomy: string;
-  status: "proposed" | "executed" | "rejected" | "failed";
+  status: "proposed" | "executed" | "rejected" | "failed" | "undone";
   approver: string | null;
   result: Record<string, unknown>;
   error: string | null;
+  undoable?: boolean;
   created_at: string;
+  decided_at: string | null;
+}
+
+export interface ActionHistoryItem {
+  id: string;
+  meeting_id: string;
+  meeting_title: string;
+  kind: string;
+  title: string;
+  status: "executed" | "failed" | "undone";
+  result_status: string;
+  url: string;
+  error: string | null;
+  undoable: boolean;
   decided_at: string | null;
 }
 
@@ -319,6 +334,8 @@ export interface MeInfo {
   language?: string;
   profile?: UserProfile;
   custom_context?: string;
+  capabilities?: Record<string, boolean>;
+  capability_catalog?: { key: string; label: string; description: string; default: boolean }[];
 }
 export interface CompanyProfile {
   industry?: string;

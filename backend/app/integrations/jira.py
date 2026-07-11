@@ -61,6 +61,20 @@ async def create_issue(token: str, summary: str, description: str = "", project_
     return {"key": key, "url": f"{site_url}/browse/{key}" if site_url and key else ""}
 
 
+async def delete_issue(token: str, key: str) -> None:
+    """Undo a Jira write — delete an issue by key. 404 = already gone (treated as done)."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        res = await c.get("https://api.atlassian.com/oauth/token/accessible-resources", headers=_headers(token))
+        res.raise_for_status()
+        sites = res.json()
+        if not sites:
+            raise RuntimeError("No accessible Jira site for this token.")
+        base = f"https://api.atlassian.com/ex/jira/{sites[0]['id']}/rest/api/3"
+        r = await c.delete(f"{base}/issue/{key}", headers=_headers(token))
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
+
 async def list_projects(token: str) -> list[dict]:
     """Projects the token can file into: [{key, name}]. [] if no accessible site/projects."""
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:

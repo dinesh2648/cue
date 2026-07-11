@@ -124,6 +124,7 @@ class ProposedActionOut(BaseModel):
     approver: str | None
     result: dict
     error: str | None
+    undoable: bool = False
     created_at: datetime
     decided_at: datetime | None
 

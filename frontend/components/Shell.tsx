@@ -11,6 +11,7 @@ const NAV: { href: string; label: string; icon: string }[] = [
   { href: "/", label: "Dashboard", icon: "◱" },
   { href: "/ask", label: "Ask Cue", icon: "✦" },
   { href: "/connections", label: "Connections", icon: "⚡" },
+  { href: "/activity", label: "Activity", icon: "◷" },
   { href: "/team", label: "Team", icon: "◎" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
@@ -18,6 +19,7 @@ const NAV: { href: string; label: string; icon: string }[] = [
 const TITLES: [string, string][] = [
   ["/ask", "Ask Cue"],
   ["/connections", "Connections"],
+  ["/activity", "Activity"],
   ["/team", "Team"],
   ["/settings", "Settings & billing"],
   ["/meeting", "Live meeting"],

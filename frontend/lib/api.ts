@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -57,6 +57,11 @@ export const api = {
   me: () => request<MeInfo>("/api/me"),
   setAutopilot: (enabled: boolean) =>
     request<{ autopilot: boolean }>("/api/me/autopilot", { method: "POST", body: JSON.stringify({ enabled }) }),
+  setCapabilities: (capabilities: Record<string, boolean>) =>
+    request<{ capabilities: Record<string, boolean> }>("/api/me/capabilities", {
+      method: "POST",
+      body: JSON.stringify({ capabilities }),
+    }),
   setProfile: (patch: Partial<UserProfile> & { team?: string; language?: string; custom_context?: string }) =>
     request<{ team: string; profile: UserProfile; custom_context: string }>("/api/me/profile", {
       method: "POST",
@@ -104,6 +109,8 @@ export const api = {
       body: JSON.stringify({ payload: payload || null }),
     }),
   rejectAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/reject`, { method: "POST" }),
+  undoAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/undo`, { method: "POST" }),
+  actionHistory: () => request<{ items: ActionHistoryItem[] }>("/api/me/action-history"),
   approveAll: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions/approve-all`, { method: "POST" }),
   jiraProjects: () => request<{ key: string; name: string }[]>("/api/jira/projects"),
   metrics: () => request<Metrics>("/metrics"),

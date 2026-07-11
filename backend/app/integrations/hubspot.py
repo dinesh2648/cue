@@ -124,6 +124,21 @@ async def create_note_remote(token: str, body: str) -> dict:
         return r.json()
 
 
+async def delete_object(token: str, object_type: str, object_id: str) -> None:
+    """Undo a HubSpot write — delete a note/task by id. 404 = already gone (treated as done)."""
+    import httpx as _httpx
+
+    async with _httpx.AsyncClient(timeout=_httpx.Timeout(15.0, connect=5.0)) as c:
+        r = await c.delete(
+            f"https://api.hubapi.com/crm/v3/objects/{object_type}/{object_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if r.status_code in (401, 403):
+            raise RuntimeError("HubSpot delete not permitted — reconnect HubSpot with write scope.")
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
+
 async def create_task_remote(token: str, title: str, notes: str = "") -> dict:
     """Create a real HubSpot task. Raises on API/permission error. Returns the HubSpot object."""
     import time

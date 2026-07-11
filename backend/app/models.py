@@ -259,6 +259,10 @@ class User(Base):
     # Preferred language for AI output (ISO code, e.g. en|ar|es|fr). The advisor writes this user's
     # answers/prep/summary in it — so an English speaker reads English even in an Arabic meeting.
     language: Mapped[str] = mapped_column(String(8), default="en", server_default="en")
+    # Per-user capability toggles (JSON: {action_confirmations, action_undo, recap_links,
+    # answer_feedback, …}). Missing keys fall back to defaults in app/capabilities.py, so new
+    # capabilities light up without a migration.
+    capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -315,12 +319,32 @@ class ProposedAction(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     write: Mapped[bool] = mapped_column(default=True)
     autonomy: Mapped[str] = mapped_column(String(16), default="approve")  # suggest|approve|auto
-    status: Mapped[str] = mapped_column(String(16), default="proposed")  # proposed|executed|rejected|failed
+    status: Mapped[str] = mapped_column(String(16), default="proposed")  # proposed|executed|rejected|failed|undone
     approver: Mapped[str | None] = mapped_column(String(64), nullable=True)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def undoable(self) -> bool:
+        """Executed write we can reverse — we hold the created object's id and it's reversible.
+        (A sent email can't be unsent; a local-only fallback has nothing remote to remove.)"""
+        if self.status != "executed":
+            return False
+        res = self.result or {}
+        k = self.kind
+        if k in ("note", "task"):
+            return bool(res.get("hubspot_id"))
+        if k == "jira_ticket":
+            return bool(res.get("key"))
+        if k == "notion_doc":
+            return bool(res.get("page_id"))
+        if k == "reminder":
+            return bool(res.get("event_id"))
+        if k == "email":
+            return bool(res.get("draft_id")) and not res.get("sent")
+        return False
 
 
 class AuditLog(Base):

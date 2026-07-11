@@ -96,6 +96,14 @@ async def create_page(token: str, title: str, markdown_body: str) -> dict:
     return {"id": data.get("id"), "url": data.get("url", "")}
 
 
+async def archive_page(token: str, page_id: str) -> None:
+    """Undo a Notion write — archive (soft-delete) a page by id."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        r = await c.patch(f"{_API}/pages/{page_id}", headers=_headers(token), json={"archived": True})
+        if r.status_code not in (200, 404):
+            r.raise_for_status()
+
+
 async def page_text(token: str, page_id: str, max_blocks: int = 50) -> str:
     """Concatenated plain text of a page's top-level blocks."""
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:

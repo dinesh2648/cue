@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import capabilities
 from ..actions import service
 from ..db import get_db
 from ..models import Meeting, ProposedAction, User
@@ -101,6 +103,64 @@ def reject_action(
         raise HTTPException(404, "Action not found")
     _check_action(db, a, user)
     return service.reject(db, a, user.id)
+
+
+@router.post("/actions/{action_id}/undo", response_model=ProposedActionOut)
+async def undo_action(
+    action_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Reverse an executed write — delete the ticket/note/draft/event, archive the doc."""
+    a = service.get(db, action_id)
+    if a is None:
+        raise HTTPException(404, "Action not found")
+    _check_action(db, a, user)
+    if not capabilities.enabled(user, "action_undo"):
+        raise HTTPException(403, "Undo is turned off in your settings.")
+    try:
+        return await service.undo(db, a, user.id)
+    except Exception as exc:  # provider/network/not-undoable
+        raise HTTPException(400, str(exc)[:200]) from exc
+
+
+@router.get("/me/action-history")
+def action_history(
+    limit: int = 100, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    """Everything the copilot has written for the meetings this user can see — the audit/history
+    view. Executed, failed and undone writes, newest first, with links back to the artifact."""
+    vis = visible_user_ids(db, user)
+    meetings = {
+        m.id: m for m in db.scalars(select(Meeting).where(Meeting.owner_user_id.in_(vis)))
+    }
+    if not meetings:
+        return {"items": []}
+    acts = db.scalars(
+        select(ProposedAction)
+        .where(
+            ProposedAction.meeting_id.in_(list(meetings.keys())),
+            ProposedAction.status.in_(["executed", "failed", "undone"]),
+        )
+        .order_by(ProposedAction.decided_at.desc())
+        .limit(max(1, min(limit, 500)))
+    )
+    items = []
+    for a in acts:
+        m = meetings.get(a.meeting_id)
+        res = a.result or {}
+        items.append({
+            "id": a.id,
+            "meeting_id": a.meeting_id,
+            "meeting_title": (m.title or m.customer_company or "Meeting") if m else "Meeting",
+            "kind": a.kind,
+            "title": a.title,
+            "status": a.status,
+            "result_status": res.get("status", ""),
+            "url": res.get("url", "") or "",
+            "error": a.error,
+            "undoable": a.undoable,
+            "decided_at": a.decided_at.isoformat() if a.decided_at else None,
+        })
+    return {"items": items}
 
 
 @router.get("/jira/projects")
