@@ -117,6 +117,27 @@ class Suggestion(Base):
     meeting: Mapped[Meeting] = relationship(back_populates="suggestions")
 
 
+class SuggestionFeedback(Base):
+    """A user's rating/correction of one answer — the answer feedback loop.
+
+    Corrections are fed back into future answers (injected as authoritative context for that
+    user), so the copilot learns from being told it was wrong. One row per (user, suggestion);
+    query_text is denormalized so corrections can be recalled without a join.
+    """
+
+    __tablename__ = "suggestion_feedback"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    suggestion_id: Mapped[str] = mapped_column(ForeignKey("suggestions.id"), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    meeting_id: Mapped[str] = mapped_column(String(32), index=True, default="")
+    rating: Mapped[str] = mapped_column(String(8), default="")  # up | down | ""
+    correction: Mapped[str] = mapped_column(Text, default="")   # the user's "here's the right answer"
+    query_text: Mapped[str] = mapped_column(Text, default="")   # denormalized question the answer addressed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 class MeetingSummary(Base):
     __tablename__ = "meeting_summaries"
 

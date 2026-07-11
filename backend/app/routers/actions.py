@@ -163,6 +163,46 @@ def action_history(
     return {"items": items}
 
 
+class FeedbackRequest(BaseModel):
+    rating: str | None = None       # "up" | "down" | "" (clear)
+    correction: str | None = None   # the user's "here's the right answer"
+
+
+@router.post("/suggestions/{suggestion_id}/feedback")
+def suggestion_feedback(
+    suggestion_id: str,
+    body: FeedbackRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Rate or correct one answer. Corrections steer this user's future answers (feedback loop)."""
+    from ..models import Suggestion, SuggestionFeedback
+
+    s = db.get(Suggestion, suggestion_id)
+    if s is None:
+        raise HTTPException(404, "Answer not found")
+    _check_meeting(db, s.meeting_id, user)  # must be able to see the meeting the answer belongs to
+
+    fb = db.scalar(
+        select(SuggestionFeedback).where(
+            SuggestionFeedback.suggestion_id == suggestion_id,
+            SuggestionFeedback.user_id == user.id,
+        )
+    )
+    if fb is None:
+        fb = SuggestionFeedback(
+            suggestion_id=suggestion_id, user_id=user.id,
+            meeting_id=s.meeting_id, query_text=s.query_text or "",
+        )
+    if body.rating is not None and body.rating in ("up", "down", ""):
+        fb.rating = body.rating
+    if body.correction is not None:
+        fb.correction = body.correction.strip()[:2000]
+    db.add(fb)
+    db.commit()
+    return {"ok": True, "rating": fb.rating, "correction": fb.correction}
+
+
 @router.get("/jira/projects")
 async def jira_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict]:
     """The caller's Jira projects [{key, name}] — powers the project picker on a Jira action."""

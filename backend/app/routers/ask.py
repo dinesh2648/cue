@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..advisor import grounding
+from ..advisor import feedback, grounding
 from ..advisor.roles import allowed_providers
 from ..config import settings
 from ..connectors import live_sources
@@ -108,6 +108,11 @@ async def ask(
             if body.context:
                 parts.append(body.context)
             extra_context = "\n\n".join(parts).strip()
+    # Feed the user's past corrections back in as authoritative context (feedback loop).
+    corrections = feedback.recent_corrections_block(db, user.id)
+    if corrections:
+        extra_context = (f"{extra_context}\n\n{corrections}".strip() if extra_context else corrections)
+
     servers = await active_mcp_servers(db, user.id)
     inproc = await inprocess_read_tokens(db, user.id)
 

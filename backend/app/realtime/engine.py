@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
-from ..advisor import grounding, insights, meeting_context
+from ..advisor import feedback, grounding, insights, meeting_context
 from ..advisor.roles import allowed_providers
 from ..config import settings
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
@@ -252,7 +252,9 @@ async def _answer_for_user(
             t1 = time.perf_counter()
             mc = meeting_context.render(mview)
             convo = "\n".join(recent)
-            full_ctx = f"{mc}\n\n{convo}".strip() if mc else convo
+            # Feed the user's past corrections back in as authoritative context (feedback loop).
+            corrections = feedback.recent_corrections_block(db, user_id)
+            full_ctx = "\n\n".join(x for x in [mc, convo, corrections] if x).strip()
             deep = await pack.deep_answer(
                 db=db, meeting=mview, text=query, intent=intent_res, servers=servers, context=full_ctx
             )

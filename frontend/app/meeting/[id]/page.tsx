@@ -368,7 +368,7 @@ export default function MeetingConsole() {
               </div>
             ) : (
               suggestions.map((s) => (
-                <SuggestionCard key={s.id} s={s} onPropose={proposeAction} repName={meeting?.rep_name} />
+                <SuggestionCard key={s.id} s={s} onPropose={proposeAction} repName={meeting?.rep_name} feedbackEnabled={caps.answer_feedback !== false} />
               ))
             )}
           </div>

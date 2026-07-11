@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Suggestion, Action } from "@/lib/types";
 import { intentMeta, confidenceColor, ACTION_ICON } from "@/lib/intents";
+import { api } from "@/lib/api";
 
 const SOURCE_ICON: Record<string, string> = {
   crm: "🗂️",
@@ -57,13 +58,44 @@ export default function SuggestionCard({
   s,
   onPropose,
   repName,
+  feedbackEnabled = false,
 }: {
   s: Suggestion;
   onPropose?: (action: Action) => void | Promise<void>;
   repName?: string;
+  feedbackEnabled?: boolean;
 }) {
   const meta = intentMeta(s.intent_type);
   const pct = Math.round(s.confidence * 100);
+  const [rating, setRating] = useState<string>("");
+  const [showCorrect, setShowCorrect] = useState(false);
+  const [correction, setCorrection] = useState("");
+  const [fbSaved, setFbSaved] = useState(false);
+
+  const rate = async (r: string) => {
+    const next = rating === r ? "" : r;
+    setRating(next);
+    try {
+      await api.suggestionFeedback(s.id, { rating: next });
+      setFbSaved(true);
+      setTimeout(() => setFbSaved(false), 2000);
+    } catch {
+      /* ignore — non-critical */
+    }
+  };
+
+  const submitCorrection = async () => {
+    if (!correction.trim()) return;
+    try {
+      await api.suggestionFeedback(s.id, { correction, rating: rating || "down" });
+      setRating(rating || "down");
+      setShowCorrect(false);
+      setFbSaved(true);
+      setTimeout(() => setFbSaved(false), 2500);
+    } catch {
+      /* ignore */
+    }
+  };
   const [proposed, setProposed] = useState<Record<number, boolean>>({});
   const [showTrust, setShowTrust] = useState(false);
   const liveAgent = s.engine === "claude+mcp";
@@ -277,6 +309,34 @@ export default function SuggestionCard({
               ))}
             </div>
           </>
+        )}
+
+        {feedbackEnabled && !s.deep_pending && (
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line, #e3e7f2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Helpful?</span>
+              <button className={`btn sm ${rating === "up" ? "primary" : ""}`} onClick={() => rate("up")} title="Good answer">👍</button>
+              <button className={`btn sm ${rating === "down" ? "primary" : ""}`} onClick={() => rate("down")} title="Off — needs correcting">👎</button>
+              <button className="linklike" style={{ fontSize: 12 }} onClick={() => setShowCorrect((v) => !v)}>
+                {showCorrect ? "cancel" : "✎ correct this"}
+              </button>
+              {fbSaved && <span style={{ fontSize: 12, color: "var(--green, #12946a)" }}>✓ thanks — I&apos;ll use this next time</span>}
+            </div>
+            {showCorrect && (
+              <div style={{ marginTop: 8 }}>
+                <textarea
+                  className="approval-edit"
+                  rows={3}
+                  placeholder="What's the correct answer? I'll treat this as authoritative next time."
+                  value={correction}
+                  onChange={(e) => setCorrection(e.target.value)}
+                />
+                <button className="btn primary sm" disabled={!correction.trim()} onClick={submitCorrection} style={{ marginTop: 6 }}>
+                  Save correction
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

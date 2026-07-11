@@ -157,6 +157,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  suggestionFeedback: (suggestionId: string, body: { rating?: string; correction?: string }) =>
+    request<{ ok: boolean; rating: string; correction: string }>(`/api/suggestions/${suggestionId}/feedback`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   ask: (query: string, context = "", meeting_id?: string, selection?: string[]) =>
     request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection }) }),
 
