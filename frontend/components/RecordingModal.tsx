@@ -10,11 +10,13 @@ import { api } from "@/lib/api";
  */
 export default function RecordingModal({ meetingId, onClose }: { meetingId: string; onClose: () => void }) {
   const [state, setState] = useState<{ status: string; url: string | null } | null>(null);
+  const [dlUrl, setDlUrl] = useState("");
   const [err, setErr] = useState(false);
 
   useEffect(() => {
     let alive = true;
     api.recording(meetingId).then((r) => alive && setState(r)).catch(() => alive && setErr(true));
+    api.recordingDownloadUrl(meetingId).then((u) => alive && setDlUrl(u)).catch(() => {});
     return () => { alive = false; };
   }, [meetingId]);
 
@@ -39,7 +41,7 @@ export default function RecordingModal({ meetingId, onClose }: { meetingId: stri
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {state?.url && (
               <>
-                <a className="btn primary sm" href={state.url} download="meeting-recording.mp4" target="_blank" rel="noreferrer" title="Download the recording">
+                <a className="btn primary sm" href={dlUrl || state.url} download title="Download the recording">
                   ⬇ Download
                 </a>
                 <a className="btn ghost sm" href={state.url} target="_blank" rel="noreferrer" title="Open in a new tab">

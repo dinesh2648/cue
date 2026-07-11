@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
@@ -41,7 +43,7 @@ from ..schemas import (
     SuggestionOut,
     SummaryOut,
 )
-from ..security.auth import get_current_org, get_current_user, visible_user_ids
+from ..security.auth import get_current_org, get_current_user, user_from_token, visible_user_ids
 from ..seed.data import COMPANY_ID
 
 _LIMIT_MSG = "Monthly meeting limit reached for your plan. Upgrade to keep going."
@@ -473,6 +475,49 @@ async def recording(meeting_id: str, user: User = Depends(get_current_user), db:
         return await recall.get_recording_url(meeting.recall_bot_id)
     except Exception as exc:  # pragma: no cover - provider/network
         return {"status": "error", "url": None, "detail": str(exc)[:120]}
+
+
+@router.get("/{meeting_id}/recording/download")
+async def download_recording(
+    meeting_id: str,
+    token: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Stream the recording through Cue with Content-Disposition: attachment — a guaranteed
+    one-click download regardless of the presigned URL's own headers.
+
+    Auth accepts a Bearer header OR a `?token=` query param (so a plain <a download> link works,
+    which can't send headers). RBAC-scoped to meetings the caller can see.
+    """
+    raw = (authorization.split(" ", 1)[1] if authorization and authorization.lower().startswith("bearer ") else None) or token
+    user = user_from_token(db, raw)
+    if user is None:
+        raise HTTPException(401, "Not authenticated")
+    meeting = _authorized(db, meeting_id, user)
+    if not meeting.recall_bot_id:
+        raise HTTPException(404, "No recording for this meeting")
+
+    from ..integrations import recall
+
+    info = await recall.get_recording_url(meeting.recall_bot_id)
+    url = info.get("url")
+    if not url:
+        raise HTTPException(404, info.get("status") or "No recording available yet")
+    filename = f"cue-recording-{(meeting.title or meeting_id)[:40].strip().replace(' ', '_')}.mp4"
+
+    async def _stream():
+        async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=15.0), follow_redirects=True) as client:
+            async with client.stream("GET", url) as upstream:
+                upstream.raise_for_status()
+                async for chunk in upstream.aiter_bytes(65536):
+                    yield chunk
+
+    return StreamingResponse(
+        _stream(),
+        media_type="video/mp4",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/{meeting_id}/summary", response_model=SummaryOut)

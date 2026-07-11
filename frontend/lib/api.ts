@@ -98,6 +98,12 @@ export const api = {
   end: (id: string) => request<Summary>(`/api/meetings/${id}/end`, { method: "POST" }),
   summary: (id: string) => request<Summary>(`/api/meetings/${id}/summary`),
   recording: (id: string) => request<{ status: string; url: string | null }>(`/api/meetings/${id}/recording`),
+  // Guaranteed one-click download: streams through the backend with Content-Disposition: attachment.
+  // A plain <a> can't send the Bearer header, so the session token rides as a query param.
+  recordingDownloadUrl: async (id: string): Promise<string> => {
+    const token = await authToken();
+    return `${API}/api/meetings/${id}/recording/download${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  },
   scorecard: (id: string, refresh = false) =>
     request<Scorecard>(`/api/meetings/${id}/scorecard${refresh ? "?refresh=1" : ""}`),
   meetingHealth: (id: string) => request<MeetingHealth>(`/api/meetings/${id}/health`),
