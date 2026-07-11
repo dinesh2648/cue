@@ -5,7 +5,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, true
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -25,6 +25,11 @@ def _now() -> datetime:
 
 class Meeting(Base):
     __tablename__ = "meetings"
+    # Composite indexes for the filtered/paginated list: scope (org or owner) + created_at order.
+    __table_args__ = (
+        Index("ix_meetings_org_created", "org_id", "created_at"),
+        Index("ix_meetings_owner_created", "owner_user_id", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     title: Mapped[str] = mapped_column(String(255))

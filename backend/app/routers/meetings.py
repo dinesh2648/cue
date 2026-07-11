@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..actions import service as action_service
@@ -213,40 +213,36 @@ def list_meetings(
     and a `days` date-range window. Returns {items, total} so the UI can paginate."""
     from ..security.auth import visible_user_ids
 
-    vis = visible_user_ids(db, user)
-    scope = (
-        select(Meeting).where(Meeting.org_id == user.org_id)
-        if user.org_id else select(Meeting).where(Meeting.owner_user_id == user.id)
-    )
-    rows = db.scalars(scope.order_by(Meeting.created_at.desc())).all()
-    # RBAC: own + (reports' for managers / all for owner-admin) + meetings you attended.
-    visible = [m for m in rows if m.owner_user_id in vis or (user.email and user.email in (m.attendees or []))]
+    # Build the whole query in SQL (indexed) so we never load a workspace's meetings into memory.
+    vis = list(visible_user_ids(db, user))
+    base = Meeting.org_id == user.org_id if user.org_id else Meeting.owner_user_id == user.id
+    # RBAC: owner is visible (own / reports' / all-for-admin) OR you're a listed attendee.
+    # attendees is a JSON array of emails; match the serialized element portably (Postgres + SQLite).
+    rbac = Meeting.owner_user_id.in_(vis)
+    if user.email:
+        rbac = or_(rbac, cast(Meeting.attendees, String).ilike(f'%"{user.email}"%'))
+    conds = [base, rbac]
 
-    ql = q.strip().lower()
+    ql = q.strip()
     if ql:
-        visible = [
-            m for m in visible
-            if ql in (m.title or "").lower()
-            or ql in (m.customer_company or "").lower()
-            or ql in (m.customer_contact or "").lower()
-        ]
+        like = f"%{ql}%"
+        conds.append(or_(
+            Meeting.title.ilike(like),
+            Meeting.customer_company.ilike(like),
+            Meeting.customer_contact.ilike(like),
+        ))
     if status.strip():
-        visible = [m for m in visible if m.status == status.strip()]
+        conds.append(Meeting.status == status.strip())
     if days and days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        conds.append(Meeting.created_at >= datetime.now(timezone.utc) - timedelta(days=days))
 
-        def _when(m: Meeting) -> datetime:
-            w = m.created_at
-            if w is not None and w.tzinfo is None:
-                w = w.replace(tzinfo=timezone.utc)
-            return w or datetime.min.replace(tzinfo=timezone.utc)
-
-        visible = [m for m in visible if _when(m) >= cutoff]
-
-    total = len(visible)
+    total = db.scalar(select(func.count()).select_from(Meeting).where(*conds)) or 0
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
-    return {"items": visible[offset:offset + limit], "total": total}
+    items = list(db.scalars(
+        select(Meeting).where(*conds).order_by(Meeting.created_at.desc()).limit(limit).offset(offset)
+    ))
+    return {"items": items, "total": total}
 
 
 @router.get("/{meeting_id}", response_model=MeetingOut)
