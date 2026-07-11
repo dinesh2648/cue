@@ -36,8 +36,8 @@ export default function Home() {
   const [days, setDays] = useState(0); // 0 = all time
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
-  // Upcoming-calendar range window
-  const [calDays, setCalDays] = useState(30);
+  // Upcoming-calendar range window (default: the coming week)
+  const [calDays, setCalDays] = useState(7);
   // Dashboard meetings sub-menu: which list is shown
   const [tab, setTab] = useState<"upcoming" | "recent">("upcoming");
 
