@@ -15,6 +15,40 @@ const EXAMPLES = [
 
 const pct = (n: number) => `${Math.round((n || 0) * 100)}%`;
 
+/** Live research progress: cycles through the real phases, shows elapsed time + the sources
+ *  being searched, so a slow deep answer reads as "working" instead of "stuck". */
+function ResearchProgress({ sources }: { sources: string[] }) {
+  const phases = [
+    "Understanding your question",
+    sources.length ? `Searching your ${sources.length} connected source${sources.length > 1 ? "s" : ""}` : "Searching your connected sources",
+    "Reading and cross-checking results",
+    "Composing a grounded, cited answer",
+  ];
+  const [i, setI] = useState(0);
+  const [sec, setSec] = useState(0);
+  useEffect(() => {
+    const p = setInterval(() => setI((x) => (x + 1 < phases.length ? x + 1 : x)), 3200);
+    const s = setInterval(() => setSec((x) => x + 1), 1000);
+    return () => { clearInterval(p); clearInterval(s); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div className="card" style={{ alignSelf: "flex-start", maxWidth: "88%", minWidth: 300, padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 9 }}>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>{phases[i]}…</span>
+        <span style={{ color: "var(--muted)", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{sec}s</span>
+      </div>
+      <div className="cue-prog" />
+      {sources.length > 0 && (
+        <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>Searching: {sources.join(" · ")}</div>
+      )}
+      <div style={{ marginTop: 6, color: "var(--faint)", fontSize: 11.5 }}>
+        Deep research across your tools can take up to a minute for the first grounded answer.
+      </div>
+    </div>
+  );
+}
+
 function AssistantBubble({ meta, text }: { meta: AskResult; text: string }) {
   return (
     <div className="card" style={{ alignSelf: "flex-start", maxWidth: "88%", padding: "14px 16px" }}>
@@ -81,6 +115,7 @@ export default function AskPage() {
   const [error, setError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
+  const [connectedSources, setConnectedSources] = useState<string[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
 
   const loadThreads = useCallback(() => api.askThreads().then((r) => setThreads(r.threads)).catch(() => {}), []);
@@ -93,6 +128,9 @@ export default function AskPage() {
       setThreads(r.threads);
       if (r.threads.length > 0) openThread(r.threads[0].id);
     }).catch(() => {});
+    api.connectors()
+      .then((cs) => alive && setConnectedSources(cs.filter((c) => c.status === "connected").map((c) => c.name)))
+      .catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -244,11 +282,7 @@ export default function AskPage() {
               <AssistantBubble key={i} meta={t.meta} text={t.text} />
             )
           )}
-          {busy && (
-            <div className="card" style={{ alignSelf: "flex-start", padding: "12px 16px", color: "var(--muted)" }}>
-              Researching across your connected sources…
-            </div>
-          )}
+          {busy && <ResearchProgress sources={connectedSources} />}
           {error && (
             <div className="card" style={{ alignSelf: "flex-start", padding: "12px 16px", color: "var(--red, #e5484d)" }}>{error}</div>
           )}

@@ -617,3 +617,9 @@ code { background: var(--bg-2); border: 1px solid var(--border); border-radius: 
 /* Solid red "End & summarize" button on dark (matches the comp's REC-red action) */
 .cue-content-dark .btn.danger { background: rgba(193,48,48,0.92); border-color: transparent; color: #fff; }
 .cue-content-dark .btn.danger:hover { background: #C13030; }
+
+/* Ask — indeterminate research-progress bar */
+@keyframes cue-indeterminate { 0% { left: -42%; } 100% { left: 100%; } }
+.cue-prog { position: relative; height: 4px; border-radius: 3px; background: var(--surface-2, #e6ebf7); overflow: hidden; }
+.cue-prog::after { content: ""; position: absolute; top: 0; bottom: 0; left: -42%; width: 42%; border-radius: 3px; background: var(--accent, #335CFF); animation: cue-indeterminate 1.25s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cue-prog::after { animation: none; left: 0; width: 100%; opacity: 0.5; } }
