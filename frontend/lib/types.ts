@@ -83,6 +83,26 @@ export interface ConnectorCheck {
   reason: string;
 }
 
+export interface MeetingHealth {
+  status: "good" | "fair" | "poor";
+  turns: number;
+  grounded: number;
+  grounded_pct: number;
+  scopes: Record<string, number>;
+  scope_pct: Record<string, number>;
+  deep_turns: number;
+  deep_pct: number;
+  abstained: number;
+  avg_latency_ms: number;
+  avg_deep_latency_ms: number;
+  connectors: {
+    connected: number;
+    healthy: number;
+    broken: { name: string; health: string; reason: string }[];
+  };
+  recommendations: string[];
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;

@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -86,6 +86,7 @@ export const api = {
   recording: (id: string) => request<{ status: string; url: string | null }>(`/api/meetings/${id}/recording`),
   scorecard: (id: string, refresh = false) =>
     request<Scorecard>(`/api/meetings/${id}/scorecard${refresh ? "?refresh=1" : ""}`),
+  meetingHealth: (id: string) => request<MeetingHealth>(`/api/meetings/${id}/health`),
   meetingInsights: (id: string) =>
     request<{ insights: Insight[]; running_summary: string; current_topic: string; open_questions: string[]; decisions: string[]; action_items: string[]; risks: string[] }>(
       `/api/meetings/${id}/insights`

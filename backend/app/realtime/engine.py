@@ -296,6 +296,15 @@ async def _answer_for_user(
             await manager.send_to_user(
                 meeting_id, user_id, {"type": "suggestion_update", "data": _sugg_payload(sugg, deep_pending=False)}
             )
+
+        # Per-turn trace (observability): one structured line per answer so a degraded turn
+        # (abstained / ungrounded / slow / deep failed) is visible in logs, not silent.
+        log.info(
+            "turn trace meeting=%s user=%s intent=%s engine=%s scope=%s grounded=%s "
+            "fast_ms=%s deep_ms=%s sources=%d",
+            meeting_id, user_id or "-", intent_res.intent_type, sugg.engine, sugg.access_scope,
+            sugg.grounded, sugg.latency_ms, sugg.deep_latency_ms or 0, len(sugg.sources or []),
+        )
     except Exception as exc:  # pragma: no cover - one participant's failure must not affect others
         log.exception("answer for user %s (meeting %s) failed: %s", user_id, meeting_id, exc)
     finally:

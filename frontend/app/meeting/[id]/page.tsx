@@ -11,6 +11,7 @@ import MeetingAsk from "@/components/MeetingAsk";
 import SharePanel from "@/components/SharePanel";
 import SummaryPanel from "@/components/SummaryPanel";
 import ApprovalsPanel from "@/components/ApprovalsPanel";
+import MeetingHealthBadge from "@/components/MeetingHealthBadge";
 import ScorecardPanel from "@/components/ScorecardPanel";
 import { Markdown } from "@/components/MeetingPrepPanel";
 
@@ -214,6 +215,7 @@ export default function MeetingConsole() {
           <span className="led" />
           {status === "transcript_complete" ? "ready to wrap" : status}
         </span>
+        <MeetingHealthBadge meetingId={id} live={status === "live"} />
         {prep?.found && (
           <button
             className={`btn ghost sm ${prepOpen ? "active" : ""}`}

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..actions import service as action_service
 from ..billing import service as billing_service
 from ..config import settings
+from ..connectors import manager as connector_manager
 from ..db import get_db
 from ..knowledge.store import index
 from ..packs.registry import get_pack, pack_for_owner, pack_for_team
@@ -272,6 +273,79 @@ def suggestions(meeting_id: str, user: User = Depends(get_current_user), db: Ses
             .order_by(Suggestion.created_at)
         )
     )
+
+
+@router.get("/{meeting_id}/health")
+def meeting_health(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Answer-quality + connection health for THIS user in THIS meeting — the observability
+    surface that turns 'the copilot felt off' into concrete, fixable numbers.
+
+    Aggregates the caller's own suggestions (grounded %, scope mix, latency, deep-tier rate,
+    abstentions) and cross-references their connector health, then emits plain recommendations.
+    """
+    _authorized(db, meeting_id, user)
+    suggs = list(db.scalars(
+        select(Suggestion).where(
+            Suggestion.meeting_id == meeting_id,
+            or_(Suggestion.recipient_user_id == user.id, Suggestion.recipient_user_id.is_(None)),
+        )
+    ))
+    turns = len(suggs)
+    grounded = sum(1 for s in suggs if s.grounded)
+    scopes = {"user": 0, "web": 0, "demo": 0, "none": 0}
+    for s in suggs:
+        scopes[s.access_scope if s.access_scope in scopes else "none"] += 1
+    deep = [s for s in suggs if s.engine == "claude+mcp"]
+    fast_latencies = [s.latency_ms for s in suggs if s.latency_ms]
+    deep_latencies = [s.deep_latency_ms for s in deep if s.deep_latency_ms]
+
+    def _pct(n: int) -> int:
+        return round(100 * n / turns) if turns else 0
+
+    # Connector coverage for the caller (reuses the same health verdicts as the Connections page).
+    catalog = connector_manager.catalog(db, user)
+    connected = [c for c in catalog if c["status"] == "connected"]
+    healthy = [c for c in connected if c["health"] == "healthy"]
+    broken = [c for c in connected if c["health"] not in ("healthy",)]
+
+    recs: list[str] = []
+    for c in broken[:4]:
+        recs.append(f"{c['name']}: {c['health_reason']}")
+    if turns and scopes["none"] and _pct(scopes["none"]) >= 40 and not healthy:
+        recs.append("Connect a tool — answers are abstaining because nothing is grounded in your data.")
+    if turns and not deep and healthy:
+        recs.append("Deep answers aren't running — check the LLM/model configuration.")
+    if not turns:
+        recs.append("No questions have been answered yet in this meeting.")
+
+    # Overall status: green if answers are grounded and connectors healthy; amber/red otherwise.
+    grounded_pct = _pct(grounded)
+    if turns and grounded_pct >= 60 and not broken:
+        status = "good"
+    elif broken or (turns and grounded_pct < 30):
+        status = "poor"
+    else:
+        status = "fair"
+
+    return {
+        "status": status,
+        "turns": turns,
+        "grounded": grounded,
+        "grounded_pct": grounded_pct,
+        "scopes": scopes,
+        "scope_pct": {k: _pct(v) for k, v in scopes.items()},
+        "deep_turns": len(deep),
+        "deep_pct": _pct(len(deep)),
+        "abstained": scopes["none"],
+        "avg_latency_ms": round(sum(fast_latencies) / len(fast_latencies)) if fast_latencies else 0,
+        "avg_deep_latency_ms": round(sum(deep_latencies) / len(deep_latencies)) if deep_latencies else 0,
+        "connectors": {
+            "connected": len(connected),
+            "healthy": len(healthy),
+            "broken": [{"name": c["name"], "health": c["health"], "reason": c["health_reason"]} for c in broken],
+        },
+        "recommendations": recs,
+    }
 
 
 @router.get("/{meeting_id}/insights")
