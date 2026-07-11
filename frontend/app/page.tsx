@@ -38,6 +38,8 @@ export default function Home() {
   const [page, setPage] = useState(0);
   // Upcoming-calendar range window
   const [calDays, setCalDays] = useState(30);
+  // Dashboard meetings sub-menu: which list is shown
+  const [tab, setTab] = useState<"upcoming" | "recent">("upcoming");
 
   const openRecording = async (mid: string) => {
     setRecBusy(mid);
@@ -224,9 +226,32 @@ export default function Home() {
         </section>
       )}
 
-      <section style={{ marginBottom: 30 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div className="section-title" style={{ marginBottom: 0 }}>Upcoming meetings · Google Calendar</div>
+      <div className="dash-grid">
+        <div>
+          {/* Sub-menu: switch between the calendar and past meetings */}
+          <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)", marginBottom: 16 }}>
+            {([["upcoming", "📅 Upcoming meetings"], ["recent", "🕘 Recent meetings"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setTab(k)}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: "8px 4px", marginRight: 18, fontSize: 14,
+                  fontWeight: 700, color: tab === k ? "var(--accent)" : "var(--muted)",
+                  borderBottom: tab === k ? "2px solid var(--accent)" : "2px solid transparent",
+                  marginBottom: -1,
+                }}
+              >
+                {label}
+                {k === "recent" && recent.total > 0 ? ` (${recent.total})` : ""}
+              </button>
+            ))}
+          </div>
+
+      {tab === "upcoming" && (
+      <section style={{ marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>From your Google Calendar</span>
           <select
             className="meet-input"
             style={{ width: "auto", padding: "6px 12px", fontSize: 13 }}
@@ -302,8 +327,9 @@ export default function Home() {
           </div>
         )}
       </section>
+      )}
 
-      <div className="dash-grid">
+      {tab === "recent" && (
         <div className="list-card">
           <div className="list-card-head" style={{ flexWrap: "wrap", gap: 8 }}>
             <span className="t">Recent meetings</span>
@@ -368,6 +394,8 @@ export default function Home() {
               )}
             </>
           )}
+        </div>
+      )}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
