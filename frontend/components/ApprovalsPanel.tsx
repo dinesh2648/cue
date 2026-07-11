@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/api";
 import type { ProposedAction } from "@/lib/types";
 
 const KIND_ICON: Record<string, string> = {
@@ -43,7 +44,15 @@ export default function ApprovalsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [jiraProjects, setJiraProjects] = useState<{ key: string; name: string }[] | null>(null);
+  const [jiraProj, setJiraProj] = useState<Record<string, string>>({});
   const pending = actions.filter((a) => a.status === "proposed");
+
+  const loadJiraProjects = () => {
+    if (jiraProjects !== null) return;
+    setJiraProjects([]);
+    api.jiraProjects().then(setJiraProjects).catch(() => setJiraProjects([]));
+  };
 
   const wrap = (id: string, fn: () => Promise<void>) => async () => {
     setBusy(id);
@@ -53,24 +62,45 @@ export default function ApprovalsPanel({
       setBusy(null);
     }
   };
-  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  const toggle = (id: string) => {
+    setOpen((o) => ({ ...o, [id]: !o[id] }));
+    if (actions.find((x) => x.id === id)?.kind === "jira_ticket") loadJiraProjects();
+  };
 
-  const approve = (a: ProposedAction) => {
+  const approve = (a: ProposedAction, mode?: string) => {
     const field = EDITABLE[a.kind];
-    let payload: Record<string, unknown> | undefined;
-    if (field) {
-      const val = edits[a.id] ?? originalValue(a);
-      payload = { [field]: val };
-    }
-    return onApprove(a.id, payload);
+    const payload: Record<string, unknown> = {};
+    if (field) payload[field] = edits[a.id] ?? originalValue(a);
+    if (a.kind === "email" && mode) payload.mode = mode;
+    if (a.kind === "jira_ticket" && jiraProj[a.id]) payload.project_key = jiraProj[a.id];
+    return onApprove(a.id, Object.keys(payload).length ? payload : undefined);
   };
 
   const detail = (a: ProposedAction) => {
     const editable = EDITABLE[a.kind] && a.status === "proposed";
     const value = edits[a.id] ?? originalValue(a);
     const result = a.result as Record<string, unknown> | undefined;
+    const jiraPicker =
+      a.kind === "jira_ticket" && a.status === "proposed" ? (
+        <div style={{ marginBottom: 10 }}>
+          <div className="ak-edit-hint" style={{ marginTop: 0, marginBottom: 4 }}>File into Jira project</div>
+          <select
+            className="member-select"
+            value={jiraProj[a.id] ?? String(((a.payload || {}) as Record<string, unknown>).project_key || "")}
+            onChange={(e) => setJiraProj((m) => ({ ...m, [a.id]: e.target.value }))}
+          >
+            <option value="">
+              {jiraProjects === null ? "Loading…" : jiraProjects.length ? "First available project" : "No projects — connect/authorize Jira"}
+            </option>
+            {(jiraProjects || []).map((pr) => (
+              <option key={pr.key} value={pr.key}>{pr.key} · {pr.name}</option>
+            ))}
+          </select>
+        </div>
+      ) : null;
     return (
       <div className="approval-detail">
+        {jiraPicker}
         {EDITABLE[a.kind] ? (
           editable ? (
             <>
@@ -152,9 +182,20 @@ export default function ApprovalsPanel({
               </button>
               {a.status === "proposed" ? (
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button className="btn primary sm" disabled={busy === a.id} onClick={wrap(a.id, () => approve(a))}>
-                    Approve
-                  </button>
+                  {a.kind === "email" ? (
+                    <>
+                      <button className="btn sm" disabled={busy === a.id} onClick={wrap(a.id, () => approve(a, "draft"))} title="Save as a draft in your Gmail (or locally)">
+                        Save draft
+                      </button>
+                      <button className="btn primary sm" disabled={busy === a.id} onClick={wrap(a.id, () => approve(a, "send"))} title="Send the email now via your Gmail">
+                        Send
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn primary sm" disabled={busy === a.id} onClick={wrap(a.id, () => approve(a))}>
+                      Approve
+                    </button>
+                  )}
                   <button className="btn sm" disabled={busy === a.id} onClick={wrap(a.id, () => onReject(a.id))}>
                     Reject
                   </button>

@@ -101,3 +101,44 @@ async def read_message(token: str, msg_id: str, max_chars: int = 4000) -> str:
     head = f"From: {_hdr(hs, 'From')}\nSubject: {_hdr(hs, 'Subject')}\nDate: {_hdr(hs, 'Date')}\n\n"
     body = _extract_text(payload) or d.get("snippet", "")
     return (head + body)[:max_chars]
+
+
+def _rfc822(to: str, subject: str, body: str) -> str:
+    """Build a base64url-encoded RFC-822 message for the Gmail send/drafts API."""
+    lines = []
+    if to:
+        lines.append(f"To: {to}")
+    lines.append(f"Subject: {subject}")
+    lines.append("Content-Type: text/plain; charset=UTF-8")
+    lines.append("")
+    lines.append(body or "")
+    raw = "\r\n".join(lines).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+async def send_message(token: str, to: str, subject: str, body: str) -> dict:
+    """Send an email as the user (needs gmail.send / gmail.compose scope). Returns {id, threadId}."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        r = await c.post(
+            f"{_BASE}/messages/send",
+            headers={**_headers(token), "Content-Type": "application/json"},
+            json={"raw": _rfc822(to, subject, body)},
+        )
+        if r.status_code in (401, 403):
+            raise RuntimeError("Gmail send not authorized — reconnect Gmail to grant send access.")
+        r.raise_for_status()
+        return r.json()
+
+
+async def create_draft(token: str, to: str, subject: str, body: str) -> dict:
+    """Create a Gmail draft in the user's mailbox (needs gmail.compose). Returns {id, message}."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        r = await c.post(
+            f"{_BASE}/drafts",
+            headers={**_headers(token), "Content-Type": "application/json"},
+            json={"message": {"raw": _rfc822(to, subject, body)}},
+        )
+        if r.status_code in (401, 403):
+            raise RuntimeError("Gmail draft not authorized — reconnect Gmail to grant compose access.")
+        r.raise_for_status()
+        return r.json()

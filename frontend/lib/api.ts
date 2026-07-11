@@ -104,6 +104,7 @@ export const api = {
     }),
   rejectAction: (actionId: string) => request<ProposedAction>(`/api/actions/${actionId}/reject`, { method: "POST" }),
   approveAll: (id: string) => request<ProposedAction[]>(`/api/meetings/${id}/actions/approve-all`, { method: "POST" }),
+  jiraProjects: () => request<{ key: string; name: string }[]>("/api/jira/projects"),
   metrics: () => request<Metrics>("/metrics"),
   health: () =>
     request<{ status: string; llm_provider: string; agent_engine: string; knowledge_backend: string; dev_mode: boolean }>(

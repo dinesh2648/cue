@@ -94,6 +94,7 @@ CONNECTORS: dict[str, Connector] = {
             token_url="https://oauth2.googleapis.com/token",
             scopes=[
                 "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.compose",  # create drafts + send follow-ups
                 "openid",
                 "email",
             ],

@@ -101,3 +101,18 @@ def reject_action(
         raise HTTPException(404, "Action not found")
     _check_action(db, a, user)
     return service.reject(db, a, user.id)
+
+
+@router.get("/jira/projects")
+async def jira_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict]:
+    """The caller's Jira projects [{key, name}] — powers the project picker on a Jira action."""
+    from ..connectors.manager import get_access_token
+    from ..integrations import jira
+
+    tok = await get_access_token(db, user.id, "jira")
+    if not tok or tok.startswith("demo-"):
+        return []
+    try:
+        return await jira.list_projects(tok)
+    except Exception:  # pragma: no cover - provider/network
+        return []

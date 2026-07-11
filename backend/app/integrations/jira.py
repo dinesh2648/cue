@@ -59,3 +59,17 @@ async def create_issue(token: str, summary: str, description: str = "", project_
         data = r.json()
     key = data.get("key", "")
     return {"key": key, "url": f"{site_url}/browse/{key}" if site_url and key else ""}
+
+
+async def list_projects(token: str) -> list[dict]:
+    """Projects the token can file into: [{key, name}]. [] if no accessible site/projects."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        res = await c.get("https://api.atlassian.com/oauth/token/accessible-resources", headers=_headers(token))
+        res.raise_for_status()
+        sites = res.json()
+        if not sites:
+            return []
+        base = f"https://api.atlassian.com/ex/jira/{sites[0]['id']}/rest/api/3"
+        pr = await c.get(f"{base}/project/search?maxResults=50", headers=_headers(token))
+        pr.raise_for_status()
+        return [{"key": v.get("key", ""), "name": v.get("name", "")} for v in pr.json().get("values", [])]

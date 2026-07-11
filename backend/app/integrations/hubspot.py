@@ -104,3 +104,42 @@ def save_email_draft(db: Session, meeting_id: str, company_id: str | None, draft
     rec = _record_sync(db, meeting_id, "email_draft", {"draft": draft}, None)
     db.commit()
     return rec
+
+
+# ── Real HubSpot write-back (via the employee's own OAuth token) ──────────────
+async def create_note_remote(token: str, body: str) -> dict:
+    """Create a real HubSpot note. Raises on API/permission error. Returns the HubSpot object."""
+    import time
+    import httpx as _httpx
+
+    async with _httpx.AsyncClient(timeout=_httpx.Timeout(15.0, connect=5.0)) as c:
+        r = await c.post(
+            "https://api.hubapi.com/crm/v3/objects/notes",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"properties": {"hs_note_body": (body or "")[:65000], "hs_timestamp": int(time.time() * 1000)}},
+        )
+        if r.status_code in (401, 403):
+            raise RuntimeError("HubSpot note write not permitted — reconnect HubSpot with write scope.")
+        r.raise_for_status()
+        return r.json()
+
+
+async def create_task_remote(token: str, title: str, notes: str = "") -> dict:
+    """Create a real HubSpot task. Raises on API/permission error. Returns the HubSpot object."""
+    import time
+    import httpx as _httpx
+
+    async with _httpx.AsyncClient(timeout=_httpx.Timeout(15.0, connect=5.0)) as c:
+        r = await c.post(
+            "https://api.hubapi.com/crm/v3/objects/tasks",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"properties": {
+                "hs_task_subject": (title or "Follow-up")[:250], "hs_task_body": notes or "",
+                "hs_timestamp": int(time.time() * 1000), "hs_task_status": "NOT_STARTED",
+                "hs_task_priority": "NONE", "hs_task_type": "TODO",
+            }},
+        )
+        if r.status_code in (401, 403):
+            raise RuntimeError("HubSpot task write not permitted — reconnect HubSpot with write scope.")
+        r.raise_for_status()
+        return r.json()

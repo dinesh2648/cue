@@ -147,24 +147,51 @@ async def _token(db: Session, owner: str | None, provider: str) -> str | None:
     return None if (not tok or tok.startswith("demo-")) else tok
 
 
+def _email_parts(p: dict, meeting) -> tuple[str, str, str]:
+    """(to, subject, body) from an email action payload + meeting. Parses a leading 'Subject:' line."""
+    text = p.get("draft") or p.get("body") or ""
+    subject, body = "Follow-up", text
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.lower().startswith("subject:"):
+            subject = line.split(":", 1)[1].strip() or subject
+            body = "\n".join(lines[i + 1:]).lstrip("\n")
+            break
+    to = (p.get("to") or "").strip()
+    if not to and meeting:
+        cand = (meeting.customer_contact or "").strip()
+        if "@" in cand:
+            to = cand
+        else:
+            to = next((a for a in (meeting.attendees or []) if a and "@" in a), "")
+    return to, subject, body
+
+
 async def _execute(db: Session, action: ProposedAction) -> dict:
-    """Perform the write — real connector if available, else record a draft (approve-then-act)."""
+    """Perform the write — real connector when the owner has one, else a local draft (approve-then-act)."""
     meeting = db.get(Meeting, action.meeting_id)
     owner = meeting.owner_user_id if meeting else None
     cid = meeting.crm_company_id if meeting else None
     p = action.payload or {}
     kind = action.kind
 
-    # ── Agentic connector writes (real, as the meeting owner) ────────────────
+    # ── Notion doc — real page under a shared page; PAT only (DCR/OAuth can't) ─
     if kind == "notion_doc":
+        from ..connectors.manager import get_connection
         from ..integrations import notion
 
+        conn = get_connection(db, owner, "notion") if owner else None
+        if conn and (conn.oauth_meta or {}).get("token_endpoint"):
+            raise RuntimeError(
+                "Notion is connected via OAuth (DCR), which can't create pages. Add a Notion "
+                "internal-integration token (PAT) in Connections and share a page with it."
+            )
         token = await _token(db, owner, "notion")
         if token:
             res = await notion.create_page(token, p.get("title") or action.title, p.get("body") or "")
-            return {"type": "notion_doc", "url": res.get("url"), "page_id": res.get("id")}
+            return {"type": "notion_doc", "url": res.get("url"), "page_id": res.get("id"), "status": "created in Notion"}
         rec = _record(db, action.meeting_id, kind, p, "drafted")
-        return {"type": "notion_doc", "crm_id": rec.id, "status": "drafted — connect Notion (write) to auto-create"}
+        return {"type": "notion_doc", "crm_id": rec.id, "status": "drafted — connect Notion (PAT) + share a page to auto-create"}
 
     if kind == "reminder":
         from ..integrations import google_calendar
@@ -172,7 +199,7 @@ async def _execute(db: Session, action: ProposedAction) -> dict:
         token = await _token(db, owner, "google_calendar")
         if token:
             res = await google_calendar.create_event(token, p.get("title") or action.title, p.get("detail", ""))
-            return {"type": "reminder", "url": res.get("url")}
+            return {"type": "reminder", "url": res.get("url"), "status": "added to Google Calendar"}
         rec = _record(db, action.meeting_id, kind, p, "pending")
         return {"type": "reminder", "crm_id": rec.id, "status": "connect Google Calendar to schedule"}
 
@@ -181,21 +208,60 @@ async def _execute(db: Session, action: ProposedAction) -> dict:
 
         token = await _token(db, owner, "jira")
         if token:
-            res = await jira.create_issue(token, p.get("summary") or action.title, p.get("description", ""))
-            return {"type": "jira_ticket", "key": res.get("key"), "url": res.get("url")}
+            res = await jira.create_issue(token, p.get("summary") or action.title, p.get("description", ""), p.get("project_key"))
+            return {"type": "jira_ticket", "key": res.get("key"), "url": res.get("url"), "status": f"created {res.get('key', '')}".strip()}
         rec = _record(db, action.meeting_id, kind, p, "pending")
         return {"type": "jira_ticket", "crm_id": rec.id, "status": "connect Jira to auto-create the ticket"}
 
-    # ── CRM writes (mock CRM layer) ──────────────────────────────────────────
+    # ── HubSpot note/task — real write when connected, local fallback otherwise ─
     if kind == "note":
+        token = await _token(db, owner, "hubspot")
+        if token:
+            try:
+                res = await hubspot.create_note_remote(token, p.get("body") or action.title)
+                return {"type": "note", "hubspot_id": res.get("id"), "status": "created in HubSpot"}
+            except Exception as exc:
+                rec = hubspot.create_note(db, action.meeting_id, cid, p.get("body") or action.title)
+                return {"type": "note", "crm_id": rec.external_id, "status": f"saved locally (HubSpot write failed: {str(exc)[:120]})"}
         rec = hubspot.create_note(db, action.meeting_id, cid, p.get("body") or action.title)
-        return {"type": "note", "crm_id": rec.external_id}
+        return {"type": "note", "crm_id": rec.external_id, "status": "saved locally — connect HubSpot to sync"}
+
     if kind == "task":
+        token = await _token(db, owner, "hubspot")
+        if token:
+            try:
+                res = await hubspot.create_task_remote(token, p.get("title") or action.title, p.get("notes", ""))
+                return {"type": "task", "hubspot_id": res.get("id"), "status": "created in HubSpot"}
+            except Exception as exc:
+                rec = hubspot.create_task(db, action.meeting_id, cid, p.get("title") or action.title, p.get("notes", ""))
+                return {"type": "task", "crm_id": rec.external_id, "status": f"saved locally (HubSpot write failed: {str(exc)[:120]})"}
         rec = hubspot.create_task(db, action.meeting_id, cid, p.get("title") or action.title, p.get("notes", ""))
-        return {"type": "task", "crm_id": rec.external_id}
+        return {"type": "task", "crm_id": rec.external_id, "status": "saved locally — connect HubSpot to sync"}
+
+    # ── Email — send or draft via the owner's Gmail (mode in payload) ─────────
     if kind == "email":
+        from ..integrations import gmail
+
+        mode = (p.get("mode") or "draft").lower()
+        to, subject, body = _email_parts(p, meeting)
+        token = await _token(db, owner, "gmail")
+        if mode == "send":
+            if not token:
+                raise RuntimeError("Connect Gmail (with send permission) to send, or choose Save draft.")
+            if not to:
+                raise RuntimeError("No recipient email — edit the action to add a 'to' address before sending.")
+            res = await gmail.send_message(token, to, subject, body)
+            return {"type": "email", "sent": True, "to": to, "message_id": res.get("id"), "status": f"sent to {to}"}
+        # draft
+        if token:
+            try:
+                res = await gmail.create_draft(token, to, subject, body)
+                return {"type": "email", "gmail_draft": True, "to": to, "draft_id": res.get("id"), "status": f"drafted in your Gmail{f' → {to}' if to else ''}"}
+            except Exception as exc:
+                rec = hubspot.save_email_draft(db, action.meeting_id, cid, p.get("draft") or p.get("body") or action.title)
+                return {"type": "email", "crm_id": rec.id, "status": f"saved locally (Gmail draft failed: {str(exc)[:120]})"}
         rec = hubspot.save_email_draft(db, action.meeting_id, cid, p.get("draft") or p.get("body") or action.title)
-        return {"type": "email", "crm_id": rec.id}
+        return {"type": "email", "crm_id": rec.id, "status": "saved locally — connect Gmail to draft or send"}
 
     rec = _record(db, action.meeting_id, kind, p, "created")
     return {"type": kind, "crm_id": rec.id, "url": p.get("url", "")}
