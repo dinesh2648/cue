@@ -285,6 +285,14 @@ class ConnectorConnection(Base):
     # token can be refreshed later without re-discovering. Empty for static-OAuth connectors.
     oauth_meta: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Custom (non-registry) remote MCP server the user pointed Cue at — "works with the whole
+    # MCP ecosystem" instead of only the built-in catalog. These carry their own display metadata
+    # since there's no registry entry to look it up from.
+    is_custom: Mapped[bool] = mapped_column(default=False)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    transport: Mapped[str] = mapped_column(String(8), default="http")  # http | sse
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 

@@ -144,6 +144,11 @@ export const api = {
   disconnect: (provider: string) => request<{ ok: boolean }>(`/api/connectors/${provider}/disconnect`, { method: "POST" }),
   checkConnector: (provider: string) =>
     request<ConnectorCheck>(`/api/connectors/${provider}/check`, { method: "POST" }),
+  addCustomMcp: (body: { name: string; mcp_url: string; token?: string; transport?: string; category?: string; icon?: string }) =>
+    request<{ ok: boolean; provider: string; status: string; has_mcp: boolean }>(`/api/connectors/custom`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   ask: (query: string, context = "", meeting_id?: string, selection?: string[]) =>
     request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection }) }),

@@ -58,6 +58,39 @@ def connect_token(
     return {"ok": True, "status": conn.status, "has_mcp": bool(conn.mcp_url)}
 
 
+class CustomMcpRequest(BaseModel):
+    name: str
+    mcp_url: str
+    token: str = ""
+    transport: str = "http"  # "http" | "sse"
+    category: str = "Custom"
+    icon: str = "🧩"
+
+
+@router.post("/custom")
+def add_custom_mcp(
+    body: CustomMcpRequest,
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Point Cue at ANY remote MCP server — the whole MCP ecosystem, not just the built-in catalog.
+
+    It then flows through the same path as a built-in connector: the agent's live tools, health,
+    role-scoping and disconnect. Counts toward the plan's connector limit like any connection.
+    """
+    if not billing_service.within_connector_limit(db, user.id, org):
+        raise HTTPException(402, _CONN_LIMIT_MSG)
+    try:
+        conn = manager.add_custom_mcp(
+            db, user.id, name=body.name, mcp_url=body.mcp_url, token=body.token,
+            transport=body.transport, category=body.category, icon=body.icon,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "provider": conn.provider, "status": conn.status, "has_mcp": bool(conn.mcp_url)}
+
+
 @router.get("/{provider}/connect")
 async def connect(
     provider: str,

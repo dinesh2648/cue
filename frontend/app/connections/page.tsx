@@ -17,6 +17,8 @@ export default function ConnectionsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [checking, setChecking] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [mcp, setMcp] = useState({ name: "", mcp_url: "", token: "", transport: "http", icon: "🧩" });
 
   const load = useCallback(() => {
     api.connectors().then(setConnectors).catch(() => {});
@@ -85,6 +87,29 @@ export default function ConnectionsPage() {
     }
   };
 
+  // Point Cue at any remote MCP server — the whole MCP ecosystem, not just the built-in catalog.
+  const addCustom = async () => {
+    if (!mcp.name.trim() || !mcp.mcp_url.trim()) return;
+    setBusy("__custom__");
+    try {
+      await api.addCustomMcp({
+        name: mcp.name.trim(),
+        mcp_url: mcp.mcp_url.trim(),
+        token: mcp.token.trim(),
+        transport: mcp.transport,
+        icon: mcp.icon.trim() || "🧩",
+      });
+      setAddOpen(false);
+      setMcp({ name: "", mcp_url: "", token: "", transport: "http", icon: "🧩" });
+      load();
+      flash("✓ MCP server added");
+    } catch {
+      flash("Couldn't add it — check the name and https:// URL.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // Actively test a connection so "connected but silently broken" becomes visible + fixable.
   const test = async (provider: string) => {
     setChecking(provider);
@@ -115,12 +140,86 @@ export default function ConnectionsPage() {
 
   return (
     <main className="container">
-      <h1 className="page-title">Your connections</h1>
-      <p style={{ color: "var(--muted)", maxWidth: 680, lineHeight: 1.6, marginTop: 0 }}>
-        Click <b>Connect</b> and approve on the provider&apos;s own page — no keys to paste. You authorize
-        with <b>your own</b> account, so the copilot only ever sees what you can. Tokens are encrypted and
-        used only on your behalf; disconnect anytime.
-      </p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <h1 className="page-title" style={{ marginBottom: 4 }}>Your connections</h1>
+          <p style={{ color: "var(--muted)", maxWidth: 680, lineHeight: 1.6, marginTop: 0 }}>
+            Click <b>Connect</b> and approve on the provider&apos;s own page — no keys to paste. You authorize
+            with <b>your own</b> account, so the copilot only ever sees what you can. Tokens are encrypted and
+            used only on your behalf; disconnect anytime.
+          </p>
+        </div>
+        <button className="btn primary sm" onClick={() => setAddOpen((v) => !v)} style={{ whiteSpace: "nowrap" }}>
+          {addOpen ? "Close" : "＋ Add MCP server"}
+        </button>
+      </div>
+
+      {addOpen && (
+        <div className="conn-card" style={{ marginBottom: 18, maxWidth: 640 }}>
+          <div className="conn-name" style={{ marginBottom: 2 }}>🧩 Add any remote MCP server</div>
+          <p className="conn-desc" style={{ marginTop: 2 }}>
+            Point Cue at any Model Context Protocol server — Linear, Asana, a vendor&apos;s hosted MCP, or your own.
+            It becomes a live tool the copilot can use, scoped to your token. Works with the whole MCP ecosystem.
+          </p>
+          <div className="conn-form" style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                className="conn-input"
+                style={{ width: 64, textAlign: "center" }}
+                placeholder="🧩"
+                value={mcp.icon}
+                onChange={(e) => setMcp({ ...mcp, icon: e.target.value })}
+                aria-label="Icon"
+              />
+              <input
+                className="conn-input"
+                style={{ flex: 1 }}
+                placeholder="Name (e.g. Linear)"
+                value={mcp.name}
+                onChange={(e) => setMcp({ ...mcp, name: e.target.value })}
+                autoFocus
+              />
+            </div>
+            <input
+              className="conn-input"
+              placeholder="MCP server URL (https://…)"
+              value={mcp.mcp_url}
+              onChange={(e) => setMcp({ ...mcp, mcp_url: e.target.value })}
+            />
+            <input
+              className="conn-input"
+              type="password"
+              placeholder="Access token (optional — for servers that need auth)"
+              value={mcp.token}
+              onChange={(e) => setMcp({ ...mcp, token: e.target.value })}
+            />
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, color: "var(--muted)" }}>
+                Transport
+                <select
+                  className="conn-input"
+                  style={{ width: "auto", padding: "6px 10px" }}
+                  value={mcp.transport}
+                  onChange={(e) => setMcp({ ...mcp, transport: e.target.value })}
+                >
+                  <option value="http">Streamable HTTP</option>
+                  <option value="sse">SSE</option>
+                </select>
+              </label>
+              <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                <button
+                  className="btn primary sm"
+                  disabled={busy === "__custom__" || !mcp.name.trim() || !mcp.mcp_url.trim()}
+                  onClick={addCustom}
+                >
+                  {busy === "__custom__" ? "Adding…" : "Add server"}
+                </button>
+                <button className="btn sm" onClick={() => setAddOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="conn-grid">
         {connectors.map((c) => (
@@ -154,7 +253,8 @@ export default function ConnectionsPage() {
             )}
 
             <div className="conn-meta">
-              {c.account_label && c.status === "connected" && (
+              {c.custom && <span className="source-chip" title="A remote MCP server you added">🧩 custom MCP</span>}
+              {c.account_label && c.status === "connected" && !c.custom && (
                 <span className="source-chip">👤 {c.account_label}</span>
               )}
               {c.has_mcp ? (

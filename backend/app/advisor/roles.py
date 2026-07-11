@@ -65,9 +65,12 @@ def _provider_of(server_name: str) -> str:
 
 def filter_servers_for_role(user: User | None, servers: list[dict]) -> list[dict]:
     """Drop remote-MCP servers that aren't relevant to this employee's department (e.g. Jira for a
-    salesperson) so the advisor doesn't waste calls on — or surface — off-role sources."""
+    salesperson) so the advisor doesn't waste calls on — or surface — off-role sources.
+
+    Custom (user-added) MCP servers are always kept: the user pointed Cue at them deliberately,
+    so they're in-scope by choice regardless of department."""
     allow = allowed_providers(user)
-    kept = [s for s in servers if _provider_of(s.get("name", "")) in allow]
+    kept = [s for s in servers if s.get("custom") or _provider_of(s.get("name", "")) in allow]
     return kept
 
 

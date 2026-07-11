@@ -74,6 +74,8 @@ export interface Connector {
   health?: "healthy" | "limited" | "expired" | "error" | "demo" | "disconnected";
   health_reason?: string;
   can_test?: boolean;
+  custom?: boolean;
+  transport?: string;
 }
 
 export interface ConnectorCheck {

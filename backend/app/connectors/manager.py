@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -123,6 +124,35 @@ def catalog(db: Session, user: User) -> list[dict]:
                 "health": health,
                 "health_reason": reason,
                 "can_test": bool(conn and conn.status != "disconnected"),
+                "custom": False,
+                "transport": "http",
+            }
+        )
+    # Custom (non-registry) remote MCP servers the user pointed Cue at — appended after the
+    # built-in catalog so they render as their own cards with the same status/health machinery.
+    for conn in conns.values():
+        if not conn.is_custom:
+            continue
+        health, reason = connection_health(conn)
+        out.append(
+            {
+                "provider": conn.provider,
+                "name": conn.display_name or conn.provider,
+                "icon": conn.icon or "🧩",
+                "category": conn.category or "Custom",
+                "description": "Custom remote MCP server" + (f" · {conn.mcp_url}" if conn.mcp_url else ""),
+                "oauth_available": False,
+                "oauth_mode": "demo",
+                "mcp_default": conn.mcp_url or "",
+                "has_mcp": bool(conn.mcp_url),
+                "status": conn.status,
+                "account_label": conn.account_label or "",
+                "error": conn.error,
+                "health": health,
+                "health_reason": reason,
+                "can_test": conn.status != "disconnected",
+                "custom": True,
+                "transport": conn.transport or "http",
             }
         )
     return out
@@ -279,15 +309,82 @@ def connect_with_token(
     return conn
 
 
+# ── Custom (bring-your-own) remote MCP servers ───────────────────────────────
+def _slugify(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    return s[:24] or "server"
+
+
+def add_custom_mcp(
+    db: Session,
+    user_id: str,
+    *,
+    name: str,
+    mcp_url: str,
+    token: str = "",
+    transport: str = "http",
+    category: str = "Custom",
+    icon: str = "🧩",
+) -> ConnectorConnection:
+    """Point Cue at ANY remote MCP server — not just the built-in catalog.
+
+    Stored as a ConnectorConnection with a generated `custom_*` provider slug + its own display
+    metadata (there's no registry entry to look it up from). It then flows through the exact same
+    machinery as a built-in: active_mcp_servers → the agent, health, role-scoping, disconnect.
+    """
+    name = (name or "").strip()
+    mcp_url = (mcp_url or "").strip()
+    if not name:
+        raise ValueError("a name is required")
+    if not mcp_url.lower().startswith(("http://", "https://")):
+        raise ValueError("a valid MCP server URL (https://…) is required")
+    transport = transport if transport in ("http", "sse") else "http"
+
+    base = f"custom_{_slugify(name)}"
+    existing = {
+        c.provider
+        for c in db.scalars(select(ConnectorConnection).where(ConnectorConnection.user_id == user_id))
+    }
+    provider, i = base, 2
+    while provider in existing:
+        provider, i = f"{base}_{i}", i + 1
+
+    conn = ConnectorConnection(user_id=user_id, provider=provider)
+    conn.is_custom = True
+    conn.display_name = name[:120]
+    conn.icon = (icon or "🧩")[:16]
+    conn.category = (category or "Custom")[:48]
+    conn.transport = transport
+    conn.mcp_url = mcp_url
+    conn.access_token_enc = encrypt(token.strip()) if token and token.strip() else None
+    conn.refresh_token_enc = None
+    conn.expires_at = None
+    conn.scopes = []
+    conn.account_label = "Connected"
+    conn.status = "connected"
+    conn.error = None
+    db.add(conn)
+    db.add(AuditLog(actor=user_id, action="connector.custom.added", resource=provider))
+    db.commit()
+    log.info("custom MCP added user=%s provider=%s url=%s", user_id, provider, mcp_url)
+    return conn
+
+
 def disconnect(db: Session, user_id: str, provider: str) -> None:
     conn = _get(db, user_id, provider)
-    if conn:
-        conn.status = "disconnected"
-        conn.access_token_enc = None
-        conn.refresh_token_enc = None
-        conn.expires_at = None
-        db.add(AuditLog(actor=user_id, action="connector.disconnected", resource=provider))
+    if not conn:
+        return
+    if conn.is_custom:  # a user-added server — remove it entirely rather than leaving a husk
+        db.delete(conn)
+        db.add(AuditLog(actor=user_id, action="connector.custom.removed", resource=provider))
         db.commit()
+        return
+    conn.status = "disconnected"
+    conn.access_token_enc = None
+    conn.refresh_token_enc = None
+    conn.expires_at = None
+    db.add(AuditLog(actor=user_id, action="connector.disconnected", resource=provider))
+    db.commit()
 
 
 def _expiry(expires_in) -> datetime | None:
@@ -376,17 +473,22 @@ async def active_mcp_servers(db: Session, user_id: str) -> list[dict]:
         url = conn.mcp_url or mcp_url(conn.provider)
         if not url:
             continue
+        is_custom = bool(conn.is_custom)
         token = await _valid_access_token(db, conn)
-        if not token:
+        # A built-in server needs a token; a custom MCP may be open (no auth) — include it anyway.
+        if not token and not is_custom:
             continue
-        transport = CONNECTORS[conn.provider].mcp_transport if conn.provider in CONNECTORS else "http"
+        if is_custom:
+            transport = conn.transport or "http"
+        else:
+            transport = CONNECTORS[conn.provider].mcp_transport if conn.provider in CONNECTORS else "http"
         # Notion via a static PAT must be read IN-PROCESS (its hosted MCP rejects PATs); via a
         # DCR OAuth token it works as a normal remote MCP server. Flag it so the agents route
         # each correctly. Other providers are always remote.
         inprocess = conn.provider == "notion" and not (conn.oauth_meta or {}).get("token_endpoint")
         servers.append({
-            "name": conn.provider, "url": url, "token": token,
-            "transport": transport, "inprocess": inprocess,
+            "name": conn.display_name if is_custom else conn.provider, "url": url, "token": token or "",
+            "transport": transport, "inprocess": inprocess, "custom": is_custom,
         })
     return servers
 
@@ -422,13 +524,47 @@ async def _ping(provider: str, token: str) -> tuple[bool, str]:
         return False, f"unreachable: {str(exc)[:100]}"
 
 
+async def _check_custom(db: Session, conn: ConnectorConnection) -> dict:
+    """Test a custom remote MCP server with a JSON-RPC tools/list — the cheapest real probe.
+
+    HTTP 401/403 = the token is wrong; 5xx/unreachable = the server is down; anything else
+    (even a 400/405 protocol quibble) means the endpoint is live and addressable.
+    """
+    url = conn.mcp_url
+    if not url:
+        return {"ok": False, "status": conn.status, "health": "error", "reason": "No MCP server URL set."}
+    tok = decrypt(conn.access_token_enc) if conn.access_token_enc else None
+    headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            resp = await client.post(url, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=headers)
+        if resp.status_code in (401, 403):
+            conn.status, conn.error = "error", "MCP server rejected the token — check the token."
+            db.commit()
+            return {"ok": False, "status": "error", "health": "error", "reason": conn.error}
+        if resp.status_code >= 500:
+            return {"ok": False, "status": conn.status, "health": "error",
+                    "reason": f"MCP server error (HTTP {resp.status_code})."}
+        if conn.status != "connected" or conn.error:  # recovered
+            conn.status, conn.error = "connected", None
+            db.commit()
+        return {"ok": True, "status": "connected", "health": "healthy", "reason": "MCP server is reachable."}
+    except Exception as exc:  # pragma: no cover - network
+        return {"ok": False, "status": conn.status, "health": "error",
+                "reason": f"Couldn't reach the MCP server: {str(exc)[:100]}"}
+
+
 async def check_connection(db: Session, user_id: str, provider: str) -> dict:
     """Actively test a connection and reconcile stored status. Returns {ok, status, health, reason}."""
-    if provider not in CONNECTORS:
-        return {"ok": False, "status": "unknown", "health": "error", "reason": "Unknown provider."}
     conn = _get(db, user_id, provider)
     if conn is None or conn.status == "disconnected":
         return {"ok": False, "status": "disconnected", "health": "disconnected", "reason": "Not connected."}
+    if conn.is_custom:
+        return await _check_custom(db, conn)
+    if provider not in CONNECTORS:
+        return {"ok": False, "status": "unknown", "health": "error", "reason": "Unknown provider."}
     token = await _valid_access_token(db, conn)
     if not token:
         health, reason = connection_health(conn)
