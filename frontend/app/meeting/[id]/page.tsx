@@ -12,6 +12,7 @@ import SharePanel from "@/components/SharePanel";
 import SummaryPanel from "@/components/SummaryPanel";
 import ApprovalsPanel from "@/components/ApprovalsPanel";
 import MeetingHealthBadge from "@/components/MeetingHealthBadge";
+import RecordingModal from "@/components/RecordingModal";
 import ScorecardPanel from "@/components/ScorecardPanel";
 import { Markdown } from "@/components/MeetingPrepPanel";
 
@@ -33,7 +34,7 @@ export default function MeetingConsole() {
   const [thinking, setThinking] = useState(false);
   const [ending, setEnding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [recBusy, setRecBusy] = useState(false);
+  const [recOpen, setRecOpen] = useState(false);
   const [prep, setPrep] = useState<MeetingPrepRecord | null>(null);
   const [prepOpen, setPrepOpen] = useState(false);
   const [insights, setInsights] = useState<Insight[]>([]);
@@ -46,22 +47,6 @@ export default function MeetingConsole() {
   const toggleTag = (seg: Segment) =>
     setTagged((prev) => (prev.some((t) => t.id === seg.id) ? prev.filter((t) => t.id !== seg.id) : [...prev, seg]));
 
-  const flash = (m: string) => {
-    setToast(m);
-    setTimeout(() => setToast(null), 3000);
-  };
-  const openRecording = async () => {
-    setRecBusy(true);
-    try {
-      const r = await api.recording(id);
-      if (r.url) window.open(r.url, "_blank", "noopener");
-      else flash(r.status === "processing" ? "Recording is still processing — try again shortly." : "No recording available for this meeting.");
-    } catch {
-      flash("Couldn't load the recording.");
-    } finally {
-      setRecBusy(false);
-    }
-  };
   const jumpTo = (sel: string) => document.querySelector(sel)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const refreshActions = () => api.listActions(id).then(setActions).catch(() => {});
@@ -237,8 +222,8 @@ export default function MeetingConsole() {
           </button>
         )}
         {meeting?.recall_bot_id && (
-          <button className="btn ghost sm" onClick={openRecording} disabled={recBusy} title="Open the meeting recording">
-            {recBusy ? "Opening…" : "📹 Recording"}
+          <button className="btn ghost sm" onClick={() => setRecOpen(true)} title="Watch or download the recording">
+            📹 Recording
           </button>
         )}
         <button className="btn ghost sm" onClick={() => jumpTo(".transcript-body")} title="Jump to transcript">
@@ -421,6 +406,8 @@ export default function MeetingConsole() {
       {status === "ended" && <ScorecardPanel meetingId={id} />}
 
       {shareOpen && <SharePanel meetingId={id} onClose={() => setShareOpen(false)} />}
+
+      {recOpen && <RecordingModal meetingId={id} onClose={() => setRecOpen(false)} />}
       {toast && <div className="toast">{toast}</div>}
     </main>
   );

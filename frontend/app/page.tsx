@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import type { Meeting, Metrics, UpcomingMeetings, CalendarEvent } from "@/lib/types";
 import MeetingPrepPanel from "@/components/MeetingPrepPanel";
+import RecordingModal from "@/components/RecordingModal";
 
 const PIPELINE = [
   { icon: "🎧", title: "Listen", sub: "Live meeting transcript" },
@@ -29,7 +30,7 @@ export default function Home() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [limitMsg, setLimitMsg] = useState<string | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingMeetings | null>(null);
-  const [recBusy, setRecBusy] = useState<string | null>(null);
+  const [recMeeting, setRecMeeting] = useState<string | null>(null);
   const [prepOpen, setPrepOpen] = useState<Record<string, boolean>>({});
   // Recent-meetings filters + pagination
   const [q, setQ] = useState("");
@@ -41,18 +42,6 @@ export default function Home() {
   // Dashboard meetings sub-menu: which list is shown
   const [tab, setTab] = useState<"upcoming" | "recent">("upcoming");
 
-  const openRecording = async (mid: string) => {
-    setRecBusy(mid);
-    try {
-      const r = await api.recording(mid);
-      if (r.url) window.open(r.url, "_blank", "noopener");
-      else alert(r.status === "processing" ? "Recording is still processing — try again shortly." : "No recording available for this meeting.");
-    } catch {
-      alert("Couldn't load the recording.");
-    } finally {
-      setRecBusy(null);
-    }
-  };
 
   useEffect(() => {
     api.metrics().then(setMetrics).catch(() => {});
@@ -376,8 +365,8 @@ export default function Home() {
                     </Link>
                     <span className={`pill ${m.status}`}><span className="led" />{m.status}</span>
                     {m.recall_bot_id && (
-                      <button className="btn ghost sm" disabled={recBusy === m.id} onClick={() => openRecording(m.id)} title="Open recording">
-                        {recBusy === m.id ? "…" : "📹"}
+                      <button className="btn ghost sm" onClick={() => setRecMeeting(m.id)} title="Watch or download the recording">
+                        📹
                       </button>
                     )}
                   </div>
@@ -410,6 +399,8 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {recMeeting && <RecordingModal meetingId={recMeeting} onClose={() => setRecMeeting(null)} />}
     </main>
   );
 }
