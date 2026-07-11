@@ -351,6 +351,7 @@ export interface AskResult {
   confidence: number;
   engine: string;
   grounded: boolean;
+  access_scope?: string; // user | web | demo | none
   assumptions?: string[];
   risks?: string[];
   next_actions?: string[];

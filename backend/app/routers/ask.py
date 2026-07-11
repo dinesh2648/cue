@@ -16,8 +16,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..advisor import grounding
+from ..advisor.roles import allowed_providers
+from ..config import settings
 from ..connectors import live_sources
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
+from ..connectors.registry import CONNECTORS
 from ..db import get_db
 from ..models import KnowledgeDoc, Meeting, Suggestion, TranscriptSegment, User
 from ..packs.registry import get_pack, pack_for_team
@@ -127,7 +131,30 @@ async def ask(
         except Exception as exc:
             log.warning("ask deep_answer failed: %s", exc)
 
-    best = deep or fast
+    # Grounding guardrail: accept the deep answer only if it actually cited the user's sources
+    # (LIVE); else the seeded fast answer only in demo mode (DEMO); else abstain honestly (NONE)
+    # rather than pass off seeded CRM as the user's data.
+    dev = settings.dev_mode
+    connected_set = {s.get("name", "") for s in servers} | {k for k, v in inproc.items() if v}
+    missing = [
+        CONNECTORS[p].name for p in allowed_providers(user)
+        if p not in connected_set and p in CONNECTORS
+    ][:3]
+    deep_v = grounding.verify(
+        answer=(deep or {}).get("answer", ""), sources=(deep or {}).get("sources"),
+        evidence=(deep or {}).get("evidence"),
+        scope=grounding.deep_scope(
+            has_sources=bool((deep or {}).get("sources") or (deep or {}).get("evidence")),
+            agent_scope=(deep or {}).get("access_scope"),
+        ),
+    ) if deep else {"grounded": False, "scope": grounding.NONE}
+    if deep and deep_v["grounded"]:
+        best, scope = deep, deep_v["scope"]
+    elif grounding.fast_scope(dev_mode=dev, has_evidence=bool(fast.get("evidence"))) == grounding.DEMO:
+        best, scope = fast, grounding.DEMO
+    else:
+        best, scope = grounding.abstain_answer(missing), grounding.NONE
+
     # "Searched" = remote-MCP servers (agent tools) + the in-process sources gather_comms queries
     # (Gmail/Drive/Slack/Notion-PAT/Calendar) — the latter aren't in `servers`, so add them here.
     searched = [s.get("name") for s in servers] + (
@@ -140,6 +167,7 @@ async def ask(
         "confidence": best.get("confidence", 0.0),
         "engine": best.get("engine", "deep" if deep else "fast"),
         "grounded": best.get("grounded", False),
+        "access_scope": scope,
         "assumptions": best.get("assumptions", []),
         "risks": best.get("risks", []),
         "next_actions": best.get("next_actions", []),

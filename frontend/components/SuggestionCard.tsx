@@ -82,6 +82,7 @@ export default function SuggestionCard({
   const grounded = s.grounded !== false;
   const userScope = s.access_scope === "user";
   const webScope = s.access_scope === "web";
+  const demoScope = s.access_scope === "demo";
 
   return (
     <div className="suggestion">
@@ -130,22 +131,24 @@ export default function SuggestionCard({
           <span className={`trust ${grounded ? "ok" : "warn"}`}>
             {grounded ? "✓ Grounded · cited" : "⚠ Will confirm — not in your sources"}
           </span>
-          <span
-            className={`trust ${userScope || webScope ? "scope" : "demo"}`}
-            title={
-              userScope
-                ? "Retrieved live through your own connected tools, scoped to your permissions — the copilot can't see anything you can't."
+          {(userScope || webScope || demoScope) && (
+            <span
+              className={`trust ${userScope || webScope ? "scope" : "demo"}`}
+              title={
+                userScope
+                  ? "Retrieved live through your own connected tools, scoped to your permissions — the copilot can't see anything you can't."
+                  : webScope
+                  ? "Researched live on the web — every claim is drawn from the sources below."
+                  : "Sample/seeded data (demo mode). Connect your tools to answer from your own permission-scoped sources."
+              }
+            >
+              {userScope
+                ? "🔒 Answered as you · your access only"
                 : webScope
-                ? "Researched live on the web — every claim is drawn from the sources below."
-                : "Demo/seeded data. Connect your tools to answer from your own permission-scoped sources."
-            }
-          >
-            {userScope
-              ? "🔒 Answered as you · your access only"
-              : webScope
-              ? "🌐 Live web research"
-              : "🗂️ demo data"}
-          </span>
+                ? "🌐 Live web research"
+                : "🗂️ sample data"}
+            </span>
+          )}
           <button className="trust-why" onClick={() => setShowTrust((v) => !v)}>
             {showTrust ? "hide" : "why can I trust this?"}
           </button>
@@ -172,7 +175,9 @@ export default function SuggestionCard({
                   ? `retrieved as ${repName || "you"} through your own connected tools. Only data you can access was read — nothing outside your permissions was touched.`
                   : webScope
                   ? "researched live on the public web (this topic isn't in your connected sources). See the source links below."
-                  : "seeded demo data. Connect your tools on the Connections page to answer from your own permission-scoped sources."}
+                  : demoScope
+                  ? "seeded sample data (demo mode). Connect your tools on the Connections page to answer from your own permission-scoped sources."
+                  : "not found in your connected sources, so the copilot abstained instead of answering from data that isn't yours."}
               </li>
               <li><b>Confidence</b> — {pct}%</li>
             </ul>

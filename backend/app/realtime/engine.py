@@ -15,8 +15,11 @@ from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
-from ..advisor import insights, meeting_context
+from ..advisor import grounding, insights, meeting_context
+from ..advisor.roles import allowed_providers
+from ..config import settings
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
+from ..connectors.registry import CONNECTORS
 from ..db import SessionLocal
 from ..models import AuditLog, Intent, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment, User
 from ..packs.registry import get_pack, pack_for_owner, pack_for_team
@@ -188,6 +191,14 @@ async def _answer_for_user(
         servers = await active_mcp_servers(db, user_id) if user_id else []
         inproc = await inprocess_read_tokens(db, user_id) if user_id else {}
         deep_will_run = pack.has_deep(servers, has_inprocess=any(inproc.values()))
+        # Grounding inputs: which of the user's sources are actually connected (friendly names),
+        # and which role-relevant tools they're missing (for the honest "connect X" hint).
+        connected = {s.get("name", "") for s in servers} | {k for k, v in inproc.items() if v}
+        src_names = [CONNECTORS[p].name for p in connected if p in CONNECTORS]
+        missing = [
+            CONNECTORS[p].name for p in allowed_providers(user)
+            if p not in connected and p in CONNECTORS
+        ][:3]
         log.info(
             "deep decision meeting=%s user=%s servers=[%s] inproc=[%s] deep_will_run=%s",
             meeting_id, user_id or "(none)",
@@ -206,13 +217,25 @@ async def _answer_for_user(
         fast = await pack.fast_answer(db=db, meeting=mview, text=query, intent=intent_res, doc_catalog=_doc_catalog(db))
         fast_latency = int((time.perf_counter() - t0) * 1000)
 
+        # Grounding guardrail (Tier 1): the fast tier only reads seeded/local data, so for a REAL
+        # authenticated user it is never *their* data. Show the seeded answer only in zero-cred
+        # demo mode; otherwise show a "searching…" placeholder while deep runs, or abstain
+        # honestly when nothing can be grounded — never pass off demo CRM as the user's own.
+        dev = settings.dev_mode
+        if grounding.fast_scope(dev_mode=dev, has_evidence=bool(fast.get("evidence"))) == grounding.DEMO:
+            content, scope = fast, grounding.DEMO
+        elif deep_will_run:
+            content, scope = grounding.researching_answer(src_names), grounding.NONE
+        else:
+            content, scope = grounding.abstain_answer(missing), grounding.NONE
+
         sugg = Suggestion(
             meeting_id=meeting_id, recipient_user_id=user_id, intent_id=intent_id,
             intent_type=intent_res.intent_type, query_text=query,
-            answer=fast["answer"], evidence=fast["evidence"], sources=fast["sources"],
-            actions=fast["actions"], confidence=fast["confidence"], latency_ms=fast_latency,
-            engine="fast" if deep_will_run else "offline", grounded=fast.get("grounded", True),
-            access_scope="demo",
+            answer=content["answer"], evidence=content["evidence"], sources=content["sources"],
+            actions=content.get("actions", []), confidence=content["confidence"], latency_ms=fast_latency,
+            engine="fast" if deep_will_run else "offline", grounded=content.get("grounded", False),
+            access_scope=scope,
         )
         db.add(sugg)
         db.add(AuditLog(
@@ -234,22 +257,41 @@ async def _answer_for_user(
                 db=db, meeting=mview, text=query, intent=intent_res, servers=servers, context=full_ctx
             )
             deep_latency = int((time.perf_counter() - t1) * 1000)
-            if deep:
+            sugg.deep_latency_ms = deep_latency
+
+            # Grounding guardrail (Tier 2): a deep answer is only accepted as LIVE if it actually
+            # cited the user's sources. If it produced nothing real, don't leave a placeholder —
+            # abstain honestly (real user) or fall back to the seeded demo answer (demo mode).
+            v = grounding.verify(
+                answer=(deep or {}).get("answer", ""), sources=(deep or {}).get("sources"),
+                evidence=(deep or {}).get("evidence"),
+                scope=grounding.deep_scope(
+                    has_sources=bool((deep or {}).get("sources") or (deep or {}).get("evidence")),
+                    agent_scope=(deep or {}).get("access_scope"),
+                ),
+            ) if deep else {"grounded": False, "reason": "deep tier returned nothing"}
+
+            if v["grounded"]:
                 sugg.answer = deep["answer"]
-                sugg.evidence = deep["evidence"]
-                sugg.sources = deep["sources"]
-                sugg.confidence = deep["confidence"]
+                sugg.evidence = deep.get("evidence", [])
+                sugg.sources = deep.get("sources", [])
+                sugg.confidence = deep.get("confidence", 0.0)
                 sugg.engine = deep.get("engine", "claude+mcp")
-                sugg.deep_latency_ms = deep_latency
-                sugg.grounded = deep.get("grounded", True)
-                sugg.access_scope = deep.get("access_scope", "demo")
+                sugg.grounded = True
+                sugg.access_scope = v["scope"]
                 sugg.envelope = {
                     "assumptions": deep.get("assumptions", []),
                     "risks": deep.get("risks", []),
                     "next_actions": deep.get("next_actions", []),
                 }
+            elif dev:
+                sugg.engine = "offline"  # demo mode: keep the seeded fast answer
             else:
-                sugg.engine = "offline"  # deep failed; keep the fast answer
+                ab = grounding.abstain_answer(missing)
+                sugg.answer, sugg.evidence, sugg.sources = ab["answer"], [], []
+                sugg.confidence, sugg.grounded, sugg.access_scope = ab["confidence"], False, grounding.NONE
+                sugg.engine = "offline"
+                log.info("deep not grounded meeting=%s user=%s reason=%s", meeting_id, user_id, v["reason"])
             db.commit()
             await manager.send_to_user(
                 meeting_id, user_id, {"type": "suggestion_update", "data": _sugg_payload(sugg, deep_pending=False)}
