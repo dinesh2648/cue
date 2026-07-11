@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, AskThreadSummary, AskThreadDetail, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -173,8 +173,17 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  ask: (query: string, context = "", meeting_id?: string, selection?: string[]) =>
-    request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection }) }),
+  ask: (query: string, context = "", meeting_id?: string, selection?: string[], thread_id?: string | null) =>
+    request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection, thread_id }) }),
+
+  // Ask conversation threads (history)
+  askThreads: () => request<{ threads: AskThreadSummary[] }>("/api/ask/threads"),
+  createAskThread: (title?: string) =>
+    request<AskThreadSummary>("/api/ask/threads", { method: "POST", body: JSON.stringify({ title: title || null }) }),
+  getAskThread: (id: string) => request<AskThreadDetail>(`/api/ask/threads/${id}`),
+  renameAskThread: (id: string, title: string) =>
+    request<AskThreadSummary>(`/api/ask/threads/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  deleteAskThread: (id: string) => request<{ ok: boolean }>(`/api/ask/threads/${id}`, { method: "DELETE" }),
 
   // Public shareable links for meeting artifacts
   createShare: (meetingId: string, scopes: string[], expires_days: number | null) =>

@@ -143,6 +143,38 @@ class SuggestionFeedback(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class AskThread(Base):
+    """A saved Ask conversation (one chat thread) belonging to a user."""
+
+    __tablename__ = "ask_threads"
+    __table_args__ = (Index("ix_ask_threads_user_updated", "user_id", "updated_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(160), default="New chat")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class AskMessage(Base):
+    """One turn in an Ask thread — a user question or the copilot's grounded answer.
+
+    Assistant turns carry the full answer envelope in `meta` (sources, evidence, engine,
+    grounded, access_scope, confidence, connected/used, assumptions/risks/next_actions) so the
+    thread renders identically when reloaded from history.
+    """
+
+    __tablename__ = "ask_messages"
+    __table_args__ = (Index("ix_ask_messages_thread_created", "thread_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    thread_id: Mapped[str] = mapped_column(ForeignKey("ask_threads.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16), default="user")  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class MeetingSummary(Base):
     __tablename__ = "meeting_summaries"
 

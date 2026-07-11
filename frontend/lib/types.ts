@@ -434,4 +434,25 @@ export interface AskResult {
   used: string[]; // sources it actually cited
   deep_ran: boolean;
   latency_ms: number;
+  thread_id?: string;
+  thread_title?: string | null;
+}
+
+export interface AskThreadSummary {
+  id: string;
+  title: string;
+  updated_at: string;
+}
+
+export interface AskThreadMessage {
+  role: "user" | "assistant";
+  content: string;
+  meta?: AskResult;
+  created_at?: string;
+}
+
+export interface AskThreadDetail {
+  id: string;
+  title: string;
+  messages: AskThreadMessage[];
 }

@@ -11,9 +11,11 @@ import logging
 import time
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..advisor import feedback, grounding
@@ -23,7 +25,7 @@ from ..connectors import live_sources
 from ..connectors.manager import active_mcp_servers, inprocess_read_tokens
 from ..connectors.registry import CONNECTORS
 from ..db import get_db
-from ..models import KnowledgeDoc, Meeting, Suggestion, TranscriptSegment, User
+from ..models import AskMessage, AskThread, KnowledgeDoc, Meeting, Suggestion, TranscriptSegment, User
 from ..packs.registry import get_pack, pack_for_team
 from ..security.auth import get_current_user, visible_user_ids
 
@@ -36,6 +38,89 @@ class AskRequest(BaseModel):
     context: str = ""  # optional prior turns, so follow-ups resolve ("what about that repo?")
     meeting_id: str | None = None  # live in-meeting Ask — grounds the answer in the meeting
     selection: list[str] = []  # transcript lines the user tagged to ask specifically about
+    thread_id: str | None = None  # the Ask conversation this turn belongs to (created if absent)
+
+
+class ThreadCreate(BaseModel):
+    title: str | None = None
+
+
+class ThreadRename(BaseModel):
+    title: str
+
+
+def _thread_out(t: AskThread) -> dict:
+    return {"id": t.id, "title": t.title, "updated_at": t.updated_at.isoformat() if t.updated_at else ""}
+
+
+@router.get("/threads")
+def list_threads(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """The signed-in user's Ask conversations, most-recently-active first."""
+    rows = db.scalars(
+        select(AskThread).where(AskThread.user_id == user.id).order_by(AskThread.updated_at.desc())
+    )
+    return {"threads": [_thread_out(t) for t in rows]}
+
+
+@router.post("/threads")
+def create_thread(
+    body: ThreadCreate | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    """Start a new, empty Ask thread."""
+    title = (body.title.strip()[:160] if body and body.title and body.title.strip() else "New chat")
+    t = AskThread(user_id=user.id, title=title)
+    db.add(t)
+    db.commit()
+    return _thread_out(t)
+
+
+@router.get("/threads/{thread_id}")
+def get_thread(thread_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """A thread with its full message history (rendered identically to when it was created)."""
+    t = db.get(AskThread, thread_id)
+    if t is None or t.user_id != user.id:
+        raise HTTPException(404, "Conversation not found")
+    msgs = db.scalars(
+        select(AskMessage).where(AskMessage.thread_id == thread_id).order_by(AskMessage.created_at)
+    )
+    return {
+        "id": t.id,
+        "title": t.title,
+        "messages": [
+            {"role": m.role, "content": m.content, "meta": m.meta or {},
+             "created_at": m.created_at.isoformat() if m.created_at else ""}
+            for m in msgs
+        ],
+    }
+
+
+@router.patch("/threads/{thread_id}")
+def rename_thread(
+    thread_id: str, body: ThreadRename, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    """Rename a thread so it's easy to find later."""
+    t = db.get(AskThread, thread_id)
+    if t is None or t.user_id != user.id:
+        raise HTTPException(404, "Conversation not found")
+    title = (body.title or "").strip()[:160]
+    if not title:
+        raise HTTPException(400, "A title is required")
+    t.title = title
+    db.add(t)
+    db.commit()
+    return _thread_out(t)
+
+
+@router.delete("/threads/{thread_id}")
+def delete_thread(thread_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Delete a thread and its messages."""
+    t = db.get(AskThread, thread_id)
+    if t is None or t.user_id != user.id:
+        raise HTTPException(404, "Conversation not found")
+    db.execute(delete(AskMessage).where(AskMessage.thread_id == thread_id))
+    db.delete(t)
+    db.commit()
+    return {"ok": True}
 
 
 def _doc_catalog(db: Session) -> list[dict]:
@@ -56,6 +141,7 @@ async def ask(
             "evidence": [], "sources": [], "confidence": 0.0, "engine": "none",
             "grounded": False, "persona": "sales", "intent": "general",
             "connected": [], "used": [], "deep_ran": False, "latency_ms": 0,
+            "thread_id": body.thread_id, "thread_title": None,
         }
 
     t0 = time.perf_counter()
@@ -165,7 +251,7 @@ async def ask(
     searched = [s.get("name") for s in servers] + (
         await live_sources.available_inprocess(db, user.id) if deep else []
     )
-    return {
+    payload = {
         "answer": best.get("answer") or "I couldn't find an answer in your connected sources.",
         "evidence": best.get("evidence", []),
         "sources": best.get("sources", []),
@@ -183,3 +269,25 @@ async def ask(
         "deep_ran": bool(deep),
         "latency_ms": int((time.perf_counter() - t0) * 1000),
     }
+
+    # Persist this turn to the Ask conversation history — create + auto-title the thread if needed.
+    thread = db.get(AskThread, body.thread_id) if body.thread_id else None
+    if thread is not None and thread.user_id != user.id:
+        thread = None  # not the caller's thread — start a fresh one
+    if thread is None:
+        thread = AskThread(user_id=user.id, title="New chat")
+        db.add(thread)
+        db.flush()
+    if not thread.title or thread.title == "New chat":
+        thread.title = (query[:80] + ("…" if len(query) > 80 else "")) or "New chat"
+    thread.updated_at = datetime.now(timezone.utc)
+    db.add(AskMessage(thread_id=thread.id, role="user", content=query))
+    db.add(AskMessage(
+        thread_id=thread.id, role="assistant", content=payload["answer"],
+        meta={k: v for k, v in payload.items() if k != "answer"},
+    ))
+    db.add(thread)
+    db.commit()
+    payload["thread_id"] = thread.id
+    payload["thread_title"] = thread.title
+    return payload
