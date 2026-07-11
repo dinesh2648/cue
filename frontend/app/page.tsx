@@ -15,9 +15,12 @@ const PIPELINE = [
   { icon: "🔄", title: "Automate", sub: "Notes, tickets, tasks & follow-ups" },
 ];
 
+const PAGE_SIZE = 8;
+
 export default function Home() {
   const router = useRouter();
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [recent, setRecent] = useState<{ items: Meeting[]; total: number }>({ items: [], total: 0 });
+  const [live, setLive] = useState<Meeting[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [starting, setStarting] = useState(false);
   const [recallEnabled, setRecallEnabled] = useState(false);
@@ -28,6 +31,13 @@ export default function Home() {
   const [upcoming, setUpcoming] = useState<UpcomingMeetings | null>(null);
   const [recBusy, setRecBusy] = useState<string | null>(null);
   const [prepOpen, setPrepOpen] = useState<Record<string, boolean>>({});
+  // Recent-meetings filters + pagination
+  const [q, setQ] = useState("");
+  const [days, setDays] = useState(0); // 0 = all time
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
+  // Upcoming-calendar range window
+  const [calDays, setCalDays] = useState(30);
 
   const openRecording = async (mid: string) => {
     setRecBusy(mid);
@@ -45,17 +55,29 @@ export default function Home() {
   useEffect(() => {
     api.metrics().then(setMetrics).catch(() => {});
     api.authConfig().then((c) => setRecallEnabled(c.recall_enabled)).catch(() => {});
-    // Poll meetings + calendar so a copilot that auto-joins shows up without a manual refresh.
-    const refresh = () => {
-      api.listMeetings().then(setMeetings).catch(() => {});
-      api.upcomingMeetings().then(setUpcoming).catch(() => {});
-    };
-    refresh();
-    const t = setInterval(refresh, 20000);
-    return () => clearInterval(t);
   }, []);
 
-  const liveMeetings = meetings.filter((m) => m.status === "live");
+  // Reset to the first page whenever a filter changes.
+  useEffect(() => { setPage(0); }, [q, days, status]);
+
+  // Load (and poll) the filtered recent list, live meetings, and the calendar window.
+  useEffect(() => {
+    let alive = true;
+    const loadRecent = () =>
+      api.listMeetings({ limit: PAGE_SIZE, offset: page * PAGE_SIZE, q, status, days })
+        .then((r) => alive && setRecent(r)).catch(() => {});
+    const loadLive = () =>
+      api.listMeetings({ status: "live", limit: 20 }).then((r) => alive && setLive(r.items)).catch(() => {});
+    const loadCal = () => api.upcomingMeetings(calDays).then((u) => alive && setUpcoming(u)).catch(() => {});
+
+    const t = setTimeout(loadRecent, q ? 300 : 0); // small debounce while typing a search
+    loadLive();
+    loadCal();
+    const poll = setInterval(() => { loadRecent(); loadLive(); loadCal(); }, 20000);
+    return () => { alive = false; clearTimeout(t); clearInterval(poll); };
+  }, [page, q, status, days, calDays]);
+
+  const liveMeetings = live;
 
   const sendToEvent = async (ev: CalendarEvent) => {
     if (!ev.meeting_url) return;
@@ -203,7 +225,20 @@ export default function Home() {
       )}
 
       <section style={{ marginBottom: 30 }}>
-        <div className="section-title">Upcoming meetings · Google Calendar</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div className="section-title" style={{ marginBottom: 0 }}>Upcoming meetings · Google Calendar</div>
+          <select
+            className="meet-input"
+            style={{ width: "auto", padding: "6px 12px", fontSize: 13 }}
+            value={calDays}
+            onChange={(e) => setCalDays(Number(e.target.value))}
+            aria-label="Calendar range"
+          >
+            <option value={7}>Next 7 days</option>
+            <option value={30}>Next 30 days</option>
+            <option value={90}>Next 90 days</option>
+          </select>
+        </div>
         {upcoming === null ? (
           <div className="card empty">Loading your calendar…</div>
         ) : !upcoming.connected ? (
@@ -227,7 +262,7 @@ export default function Home() {
             )}
           </div>
         ) : upcoming.events.length === 0 ? (
-          <div className="card empty">No meetings on your calendar in the next 30 days.</div>
+          <div className="card empty">No meetings on your calendar in the next {upcoming.days ?? calDays} days.</div>
         ) : (
           <div className="meeting-list">
             {upcoming.events.map((ev) => (
@@ -270,29 +305,68 @@ export default function Home() {
 
       <div className="dash-grid">
         <div className="list-card">
-          <div className="list-card-head"><span className="t">Recent meetings</span></div>
-          {meetings.length === 0 ? (
-            <div className="empty">No meetings yet. Hit <b>Start demo meeting</b> to watch the copilot work a live call.</div>
+          <div className="list-card-head" style={{ flexWrap: "wrap", gap: 8 }}>
+            <span className="t">Recent meetings</span>
+            <span style={{ color: "var(--faint)", fontSize: 12, fontWeight: 400 }}>{recent.total} total</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 2px 12px" }}>
+            <input
+              className="meet-input"
+              style={{ flex: 1, minWidth: 130, padding: "7px 11px", fontSize: 13 }}
+              placeholder="Search title or customer…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select className="meet-input" style={{ width: "auto", padding: "7px 10px", fontSize: 13 }} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Date range">
+              <option value={0}>All time</option>
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+            </select>
+            <select className="meet-input" style={{ width: "auto", padding: "7px 10px", fontSize: 13 }} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+              <option value="">Any status</option>
+              <option value="live">Live</option>
+              <option value="ended">Ended</option>
+              <option value="scheduled">Scheduled</option>
+            </select>
+          </div>
+          {recent.total === 0 ? (
+            <div className="empty">
+              {q || status || days
+                ? "No meetings match your filters."
+                : <>No meetings yet. Hit <b>Start demo meeting</b> to watch the copilot work a live call.</>}
+            </div>
           ) : (
-            meetings.slice(0, 8).map((m) => {
-              const label = (m.customer_company || m.title || "?").trim();
-              const initials = label.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
-              return (
-                <div key={m.id} className="rm-row">
-                  <span className="rm-avatar">{initials}</span>
-                  <Link href={`/meeting/${m.id}`} className="rm-main" style={{ textDecoration: "none", color: "inherit" }}>
-                    <div className="rm-title">{m.title}</div>
-                    <div className="rm-sub">{m.customer_company || "—"} · {new Date(m.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
-                  </Link>
-                  <span className={`pill ${m.status}`}><span className="led" />{m.status}</span>
-                  {m.recall_bot_id && (
-                    <button className="btn ghost sm" disabled={recBusy === m.id} onClick={() => openRecording(m.id)} title="Open recording">
-                      {recBusy === m.id ? "…" : "📹"}
-                    </button>
-                  )}
+            <>
+              {recent.items.map((m) => {
+                const label = (m.customer_company || m.title || "?").trim();
+                const initials = label.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+                return (
+                  <div key={m.id} className="rm-row">
+                    <span className="rm-avatar">{initials}</span>
+                    <Link href={`/meeting/${m.id}`} className="rm-main" style={{ textDecoration: "none", color: "inherit" }}>
+                      <div className="rm-title">{m.title}</div>
+                      <div className="rm-sub">{m.customer_company || "—"} · {new Date(m.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
+                    </Link>
+                    <span className={`pill ${m.status}`}><span className="led" />{m.status}</span>
+                    {m.recall_bot_id && (
+                      <button className="btn ghost sm" disabled={recBusy === m.id} onClick={() => openRecording(m.id)} title="Open recording">
+                        {recBusy === m.id ? "…" : "📹"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {recent.total > PAGE_SIZE && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12, fontSize: 13 }}>
+                  <button className="btn ghost sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>← Prev</button>
+                  <span style={{ color: "var(--muted)" }}>
+                    {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + recent.items.length} of {recent.total}
+                  </span>
+                  <button className="btn ghost sm" disabled={(page + 1) * PAGE_SIZE >= recent.total} onClick={() => setPage((p) => p + 1)}>Next →</button>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
 

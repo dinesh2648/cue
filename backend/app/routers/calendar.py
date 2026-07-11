@@ -52,22 +52,25 @@ def _prep_out(row) -> dict:
 
 
 @router.get("/upcoming")
-async def upcoming(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+async def upcoming(
+    days: int = 30, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    days = max(1, min(days, 90))  # range window the UI can pick (7 / 30 / 90)
     conn = manager.get_connection(db, user.id, "google_calendar")
     if conn is None or conn.status != "connected":
-        return {"connected": False, "events": [], "error": "not_connected"}
+        return {"connected": False, "events": [], "error": "not_connected", "days": days}
 
     token = await manager.get_access_token(db, user.id, "google_calendar")
     if not token:
-        return {"connected": True, "events": [], "error": "token_unavailable"}
+        return {"connected": True, "events": [], "error": "token_unavailable", "days": days}
 
     # Demo connections store a placeholder token (no real Google account behind it).
     if token.startswith("demo-"):
-        return {"connected": True, "events": [], "error": "demo_connection"}
+        return {"connected": True, "events": [], "error": "demo_connection", "days": days}
 
     try:
-        events = await google_calendar.list_upcoming(token)
-        return {"connected": True, "events": events, "error": None}
+        events = await google_calendar.list_upcoming(token, max_results=50, days=days)
+        return {"connected": True, "events": events, "error": None, "days": days}
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
         detail = ""

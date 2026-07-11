@@ -37,6 +37,12 @@ class MeetingOut(BaseModel):
     ended_at: datetime | None
 
 
+class MeetingPage(BaseModel):
+    """A page of meetings for the filtered/paginated list."""
+    items: list[MeetingOut]
+    total: int
+
+
 # ─── Transcript / intents / suggestions ──────────────────────────────────────
 class SegmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

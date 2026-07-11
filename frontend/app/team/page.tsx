@@ -93,13 +93,16 @@ function actionStatusColor(s: string): string {
   return "var(--muted, #666c90)"; // undone / rejected
 }
 
-function TeamRow({ m }: { m: TeamMember }) {
+function TeamRow({ m, days }: { m: TeamMember; days: number }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"meetings" | "activity">("meetings");
   const status = m.meeting_count > 0 ? "active" : "idle";
-  const acts = m.recent_actions || [];
+  const cutoff = days > 0 ? Date.now() - days * 86400000 : 0;
+  const inRange = (iso: string) => !cutoff || (!!iso && new Date(iso).getTime() >= cutoff);
+  const meetings = m.meetings.filter((mt) => inRange(mt.date));
+  const acts = (m.recent_actions || []).filter((a) => inRange(a.when));
   const activity = m.activity;
-  const hasDetail = m.meeting_count > 0 || acts.length > 0;
+  const hasDetail = m.meeting_count > 0 || (m.recent_actions?.length || 0) > 0;
 
   return (
     <>
@@ -125,16 +128,16 @@ function TeamRow({ m }: { m: TeamMember }) {
         <div className="tt-expand">
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <button className={`btn sm ${tab === "meetings" ? "primary" : ""}`} onClick={() => setTab("meetings")}>
-              Meetings ({m.meeting_count})
+              Meetings ({meetings.length})
             </button>
             <button className={`btn sm ${tab === "activity" ? "primary" : ""}`} onClick={() => setTab("activity")}>
-              Activity ({activity?.total ?? 0})
+              Activity ({acts.length})
             </button>
           </div>
 
           {tab === "meetings" && (
             <>
-              {m.meetings.map((mt) => (
+              {meetings.map((mt) => (
                 <Link key={mt.id} href={`/meeting/${mt.id}`} style={{ textDecoration: "none", color: "inherit" }}>
                   <div className="card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
                     <div style={{ flex: 1, minWidth: 180 }}>
@@ -155,7 +158,7 @@ function TeamRow({ m }: { m: TeamMember }) {
                   </div>
                 </Link>
               ))}
-              {m.meeting_count === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No meetings yet.</div>}
+              {meetings.length === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>{days ? "No meetings in this range." : "No meetings yet."}</div>}
             </>
           )}
 
@@ -186,7 +189,7 @@ function TeamRow({ m }: { m: TeamMember }) {
                   )}
                 </div>
               ))}
-              {acts.length === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No actions taken yet.</div>}
+              {acts.length === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>{days ? "No actions in this range." : "No actions taken yet."}</div>}
             </>
           )}
         </div>
@@ -199,11 +202,17 @@ export default function TeamPage() {
   const [data, setData] = useState<TeamCoaching | null>(null);
   const [members, setMembers] = useState<TeamMember[] | null>(null);
   const [err, setErr] = useState(false);
+  const [q, setQ] = useState("");
+  const [days, setDays] = useState(0); // 0 = all time; filters each member's meetings + activity
 
   useEffect(() => {
     api.teamCoaching().then(setData).catch(() => setErr(true));
     api.teamMembers().then((d) => setMembers(d.members)).catch(() => {});
   }, []);
+
+  const shown = (members || []).filter(
+    (m) => !q.trim() || `${m.name} ${m.email}`.toLowerCase().includes(q.trim().toLowerCase())
+  );
 
   return (
     <main className="container">
@@ -241,9 +250,33 @@ export default function TeamPage() {
             transcript, live answers, summary, recording and score — and their <b>activity</b>: every
             action the copilot took for them (tickets, notes, emails, docs) with its status.
           </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <input
+              className="meet-input"
+              style={{ flex: 1, minWidth: 180, padding: "8px 12px", fontSize: 13.5 }}
+              placeholder="Search a team member…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select
+              className="meet-input"
+              style={{ width: "auto", padding: "8px 12px", fontSize: 13.5 }}
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              aria-label="Date range for meetings & activity"
+            >
+              <option value={0}>All time</option>
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+            </select>
+          </div>
           <div className="team-table">
             <div className="tt-head"><span>Member</span><span>Role · team</span><span>Calls</span><span>Avg score</span><span>Status</span></div>
-            {members.map((m) => <TeamRow key={m.id} m={m} />)}
+            {shown.map((m) => <TeamRow key={m.id} m={m} days={days} />)}
+            {shown.length === 0 && (
+              <div style={{ padding: "16px", color: "var(--faint)", fontSize: 13 }}>No members match &ldquo;{q}&rdquo;.</div>
+            )}
           </div>
         </section>
       )}

@@ -77,7 +77,16 @@ export const api = {
   createDemo: () => request<Meeting>("/api/meetings/demo", { method: "POST" }),
   joinLive: (meeting_url: string, fields: Partial<{ title: string; customer_company: string; customer_contact: string }> = {}) =>
     request<Meeting>("/api/meetings/live", { method: "POST", body: JSON.stringify({ meeting_url, ...fields }) }),
-  listMeetings: () => request<Meeting[]>("/api/meetings"),
+  listMeetings: (params?: { limit?: number; offset?: number; q?: string; status?: string; days?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit != null) qs.set("limit", String(params.limit));
+    if (params?.offset != null) qs.set("offset", String(params.offset));
+    if (params?.q) qs.set("q", params.q);
+    if (params?.status) qs.set("status", params.status);
+    if (params?.days) qs.set("days", String(params.days));
+    const s = qs.toString();
+    return request<{ items: Meeting[]; total: number }>(`/api/meetings${s ? `?${s}` : ""}`);
+  },
   getMeeting: (id: string) => request<Meeting>(`/api/meetings/${id}`),
   start: (id: string, scenario?: string) =>
     request<{ started: boolean; already_running: boolean }>(`/api/meetings/${id}/start`, {
@@ -132,7 +141,8 @@ export const api = {
     ),
 
   // Calendar (upcoming meetings from the user's connected Google Calendar)
-  upcomingMeetings: () => request<UpcomingMeetings>("/api/calendar/upcoming"),
+  upcomingMeetings: (days?: number) =>
+    request<UpcomingMeetings>(`/api/calendar/upcoming${days ? `?days=${days}` : ""}`),
   // Pre-meeting prep brief (researched across connected sources + prior notes; cached)
   meetingPrep: (eventId: string, refresh = false) =>
     request<MeetingPrepResponse>(`/api/calendar/prep/${encodeURIComponent(eventId)}${refresh ? "?refresh=1" : ""}`),

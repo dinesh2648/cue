@@ -122,6 +122,7 @@ export interface UpcomingMeetings {
   events: CalendarEvent[];
   error: string | null;
   detail?: string;
+  days?: number;
 }
 
 export interface MeetingPrep {

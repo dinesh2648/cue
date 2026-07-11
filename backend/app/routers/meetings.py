@@ -1,7 +1,7 @@
 """Meeting lifecycle API: create → start (live) → transcript/intents/suggestions → end."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -36,6 +36,7 @@ from ..schemas import (
     IntentOut,
     MeetingCreate,
     MeetingOut,
+    MeetingPage,
     SegmentOut,
     SuggestionOut,
     SummaryOut,
@@ -198,8 +199,18 @@ async def create_live_meeting(
     return meeting
 
 
-@router.get("", response_model=list[MeetingOut])
-def list_meetings(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Meeting]:
+@router.get("", response_model=MeetingPage)
+def list_meetings(
+    limit: int = 20,
+    offset: int = 0,
+    q: str = "",
+    status: str = "",
+    days: int = 0,  # 0 = all time; else only meetings started within the last N days
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Filtered + paginated meetings the caller can see (RBAC). Filters: search `q`, `status`,
+    and a `days` date-range window. Returns {items, total} so the UI can paginate."""
     from ..security.auth import visible_user_ids
 
     vis = visible_user_ids(db, user)
@@ -209,7 +220,33 @@ def list_meetings(user: User = Depends(get_current_user), db: Session = Depends(
     )
     rows = db.scalars(scope.order_by(Meeting.created_at.desc())).all()
     # RBAC: own + (reports' for managers / all for owner-admin) + meetings you attended.
-    return [m for m in rows if m.owner_user_id in vis or (user.email and user.email in (m.attendees or []))]
+    visible = [m for m in rows if m.owner_user_id in vis or (user.email and user.email in (m.attendees or []))]
+
+    ql = q.strip().lower()
+    if ql:
+        visible = [
+            m for m in visible
+            if ql in (m.title or "").lower()
+            or ql in (m.customer_company or "").lower()
+            or ql in (m.customer_contact or "").lower()
+        ]
+    if status.strip():
+        visible = [m for m in visible if m.status == status.strip()]
+    if days and days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        def _when(m: Meeting) -> datetime:
+            w = m.created_at
+            if w is not None and w.tzinfo is None:
+                w = w.replace(tzinfo=timezone.utc)
+            return w or datetime.min.replace(tzinfo=timezone.utc)
+
+        visible = [m for m in visible if _when(m) >= cutoff]
+
+    total = len(visible)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    return {"items": visible[offset:offset + limit], "total": total}
 
 
 @router.get("/{meeting_id}", response_model=MeetingOut)
