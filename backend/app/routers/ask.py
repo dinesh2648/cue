@@ -11,9 +11,11 @@ import logging
 import time
 from types import SimpleNamespace
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -128,27 +130,29 @@ def _doc_catalog(db: Session) -> list[dict]:
     return [{"id": d.id, "title": d.title, "doc_type": d.doc_type, "url": d.url} for d in docs]
 
 
-@router.post("")
-async def ask(
-    body: AskRequest,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
+async def _ask_events(db: Session, user: User, body: AskRequest):
+    """Run one Ask turn as an async event stream: 'stage' progress events, then a final 'answer'.
+
+    The blocking endpoint consumes this and returns just the answer; the SSE endpoint forwards
+    every event, so the UI shows real progress (which stage, which sources) as it happens.
+    """
     query = (body.query or "").strip()
     if not query:
-        return {
+        yield ("answer", {
             "answer": "Ask a question and I'll research it across your connected sources.",
             "evidence": [], "sources": [], "confidence": 0.0, "engine": "none",
             "grounded": False, "persona": "sales", "intent": "general",
             "connected": [], "used": [], "deep_ran": False, "latency_ms": 0,
             "thread_id": body.thread_id, "thread_title": None,
-        }
+        })
+        return
 
     t0 = time.perf_counter()
     # Same pack the user's meetings use — resolved from their current team (sales↔tech).
     pack = get_pack(pack_for_team(user.team))
     persona = "tech" if pack.manifest.key == "tech" else "sales"
     recent = [ln for ln in (body.context or "").splitlines() if ln.strip()] or None
+    yield ("stage", {"stage": "understanding", "label": "Understanding your question"})
     intent = await pack.classify(query, recent)
 
     # Retrieval always runs as the CURRENT user (their tools). For an in-meeting Ask we also attach
@@ -201,6 +205,11 @@ async def ask(
 
     servers = await active_mcp_servers(db, user.id)
     inproc = await inprocess_read_tokens(db, user.id)
+    inproc_names = await live_sources.available_inprocess(db, user.id)
+    yield ("stage", {
+        "stage": "searching", "label": "Searching your connected sources",
+        "sources": [s.get("name") for s in servers] + inproc_names,
+    })
 
     # Tier 1 — instant offline answer (internal knowledge docs + CRM).
     try:
@@ -214,6 +223,10 @@ async def ask(
     # Tier 2 — deep agentic answer over the user's live connected sources.
     deep = None
     if pack.has_deep(servers, has_inprocess=any(inproc.values())):
+        yield ("stage", {
+            "stage": "reading", "label": "Reading and cross-checking your sources",
+            "sources": [s.get("name") for s in servers] + inproc_names,
+        })
         try:
             deep = await pack.deep_answer(
                 db=db, meeting=ctx, text=query, intent=intent,
@@ -221,6 +234,8 @@ async def ask(
             )
         except Exception as exc:
             log.warning("ask deep_answer failed: %s", exc)
+
+    yield ("stage", {"stage": "composing", "label": "Composing a grounded, cited answer"})
 
     # Grounding guardrail: accept the deep answer only if it actually cited the user's sources
     # (LIVE); else the seeded fast answer only in demo mode (DEMO); else abstain honestly (NONE)
@@ -248,9 +263,7 @@ async def ask(
 
     # "Searched" = remote-MCP servers (agent tools) + the in-process sources gather_comms queries
     # (Gmail/Drive/Slack/Notion-PAT/Calendar) — the latter aren't in `servers`, so add them here.
-    searched = [s.get("name") for s in servers] + (
-        await live_sources.available_inprocess(db, user.id) if deep else []
-    )
+    searched = [s.get("name") for s in servers] + (inproc_names if deep else [])
     payload = {
         "answer": best.get("answer") or "I couldn't find an answer in your connected sources.",
         "evidence": best.get("evidence", []),
@@ -290,4 +303,38 @@ async def ask(
     db.commit()
     payload["thread_id"] = thread.id
     payload["thread_title"] = thread.title
-    return payload
+    yield ("answer", payload)
+
+
+@router.post("")
+async def ask(
+    body: AskRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    """Blocking Ask — same result as the stream, delivered in a single response."""
+    result: dict = {}
+    async for ev, data in _ask_events(db, user, body):
+        if ev == "answer":
+            result = data
+    return result
+
+
+@router.post("/stream")
+async def ask_stream(
+    body: AskRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Server-Sent Events: real per-stage progress (stage + the sources being searched), then
+    the final answer. `X-Accel-Buffering: no` tells nginx not to buffer so events arrive live."""
+    async def gen():
+        try:
+            async for ev, data in _ask_events(db, user, body):
+                yield f"event: {ev}\ndata: {json.dumps(data)}\n\n"
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("ask stream failed: %s", exc)
+            yield f"event: error\ndata: {json.dumps({'message': 'Something went wrong researching that.'})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )

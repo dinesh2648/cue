@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { AskResult, AskThreadSummary } from "@/lib/types";
+import type { AskResult, AskStage, AskThreadSummary } from "@/lib/types";
 
 type Msg = { role: "user"; text: string } | { role: "assistant"; text: string; meta: AskResult };
 
@@ -15,27 +15,20 @@ const EXAMPLES = [
 
 const pct = (n: number) => `${Math.round((n || 0) * 100)}%`;
 
-/** Live research progress: cycles through the real phases, shows elapsed time + the sources
- *  being searched, so a slow deep answer reads as "working" instead of "stuck". */
-function ResearchProgress({ sources }: { sources: string[] }) {
-  const phases = [
-    "Understanding your question",
-    sources.length ? `Searching your ${sources.length} connected source${sources.length > 1 ? "s" : ""}` : "Searching your connected sources",
-    "Reading and cross-checking results",
-    "Composing a grounded, cited answer",
-  ];
-  const [i, setI] = useState(0);
+/** Live research progress, driven by the REAL stage events streamed from the server (which stage
+ *  the agent is in + which sources it's actually searching), plus a client elapsed-time counter. */
+function ResearchProgress({ stage, fallbackSources }: { stage: AskStage | null; fallbackSources: string[] }) {
   const [sec, setSec] = useState(0);
   useEffect(() => {
-    const p = setInterval(() => setI((x) => (x + 1 < phases.length ? x + 1 : x)), 3200);
     const s = setInterval(() => setSec((x) => x + 1), 1000);
-    return () => { clearInterval(p); clearInterval(s); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => clearInterval(s);
   }, []);
+  const label = stage?.label || "Understanding your question";
+  const sources = stage?.sources && stage.sources.length ? stage.sources : fallbackSources;
   return (
     <div className="card" style={{ alignSelf: "flex-start", maxWidth: "88%", minWidth: 300, padding: "14px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 9 }}>
-        <span style={{ fontWeight: 600, fontSize: 14 }}>{phases[i]}…</span>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>{label}…</span>
         <span style={{ color: "var(--muted)", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{sec}s</span>
       </div>
       <div className="cue-prog" />
@@ -116,6 +109,7 @@ export default function AskPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [connectedSources, setConnectedSources] = useState<string[]>([]);
+  const [stage, setStage] = useState<AskStage | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const loadThreads = useCallback(() => api.askThreads().then((r) => setThreads(r.threads)).catch(() => {}), []);
@@ -169,15 +163,35 @@ export default function AskPage() {
     const context = turns.slice(-6).map((t) => `${t.role === "user" ? "You" : "Copilot"}: ${t.text}`).join("\n");
     setTurns((t) => [...t, { role: "user", text: query }]);
     setBusy(true);
-    try {
-      const res = await api.ask(query, context, undefined, undefined, currentId);
+    setStage(null);
+
+    const applyAnswer = (res: AskResult) => {
       setTurns((t) => [...t, { role: "assistant", text: res.answer, meta: res }]);
       if (res.thread_id && res.thread_id !== currentId) setCurrentId(res.thread_id);
       loadThreads(); // reflect the (possibly new / retitled) thread in the sidebar
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+    };
+
+    try {
+      let answered = false;
+      await api.askStream(
+        { query, context, thread_id: currentId },
+        {
+          onStage: (s) => setStage(s),
+          onAnswer: (res) => { answered = true; applyAnswer(res); },
+          onError: (m) => setError(m),
+        }
+      );
+      // If streaming yielded no answer (e.g. a proxy buffered/killed it), fall back to blocking Ask.
+      if (!answered) applyAnswer(await api.ask(query, context, undefined, undefined, currentId));
+    } catch {
+      try {
+        applyAnswer(await api.ask(query, context, undefined, undefined, currentId));
+      } catch (e2) {
+        setError(e2 instanceof Error ? e2.message : "Something went wrong.");
+      }
     } finally {
       setBusy(false);
+      setStage(null);
     }
   };
 
@@ -282,7 +296,7 @@ export default function AskPage() {
               <AssistantBubble key={i} meta={t.meta} text={t.text} />
             )
           )}
-          {busy && <ResearchProgress sources={connectedSources} />}
+          {busy && <ResearchProgress stage={stage} fallbackSources={connectedSources} />}
           {error && (
             <div className="card" style={{ alignSelf: "flex-start", padding: "12px 16px", color: "var(--red, #e5484d)" }}>{error}</div>
           )}

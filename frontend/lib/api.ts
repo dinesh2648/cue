@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, AskThreadSummary, AskThreadDetail, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, AskStage, AskThreadSummary, AskThreadDetail, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -175,6 +175,47 @@ export const api = {
 
   ask: (query: string, context = "", meeting_id?: string, selection?: string[], thread_id?: string | null) =>
     request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection, thread_id }) }),
+
+  // Streaming Ask (SSE over fetch — EventSource can't POST a body). Emits real per-stage
+  // progress, then the final answer. Handlers are called as events arrive.
+  askStream: async (
+    body: { query: string; context?: string; meeting_id?: string; selection?: string[]; thread_id?: string | null },
+    handlers: { onStage?: (s: AskStage) => void; onAnswer?: (a: AskResult) => void; onError?: (msg: string) => void }
+  ): Promise<void> => {
+    const token = await authToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API}/api/ask/stream`, { method: "POST", headers, body: JSON.stringify(body) });
+    if (!res.ok || !res.body) {
+      handlers.onError?.(`${res.status} ${res.statusText}`);
+      return;
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let event = "message";
+        let data = "";
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        let parsed: unknown;
+        try { parsed = JSON.parse(data); } catch { continue; }
+        if (event === "stage") handlers.onStage?.(parsed as AskStage);
+        else if (event === "answer") handlers.onAnswer?.(parsed as AskResult);
+        else if (event === "error") handlers.onError?.((parsed as { message?: string }).message || "error");
+      }
+    }
+  },
 
   // Ask conversation threads (history)
   askThreads: () => request<{ threads: AskThreadSummary[] }>("/api/ask/threads"),

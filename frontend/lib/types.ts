@@ -444,6 +444,12 @@ export interface AskThreadSummary {
   updated_at: string;
 }
 
+export interface AskStage {
+  stage: string;
+  label: string;
+  sources?: string[];
+}
+
 export interface AskThreadMessage {
   role: "user" | "assistant";
   content: string;
