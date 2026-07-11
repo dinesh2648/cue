@@ -35,11 +35,13 @@ export default function ApprovalsPanel({
   onApprove,
   onReject,
   onApproveAll,
+  engineering = false,
 }: {
   actions: ProposedAction[];
   onApprove: (id: string, payload?: Record<string, unknown>) => Promise<void>;
   onReject: (id: string) => Promise<void>;
   onApproveAll: () => Promise<void>;
+  engineering?: boolean; // tech-team meeting → notes/tasks file into Jira, not the CRM
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -47,6 +49,11 @@ export default function ApprovalsPanel({
   const [jiraProjects, setJiraProjects] = useState<{ key: string; name: string }[] | null>(null);
   const [jiraProj, setJiraProj] = useState<Record<string, string>>({});
   const pending = actions.filter((a) => a.status === "proposed");
+
+  // Which actions actually write to Jira (and so should offer a project picker):
+  // an explicit Jira ticket always; a note/task only when this is an engineering meeting.
+  const routesToJira = (a: ProposedAction) =>
+    a.kind === "jira_ticket" || (engineering && (a.kind === "task" || a.kind === "note"));
 
   const loadJiraProjects = () => {
     if (jiraProjects !== null) return;
@@ -64,7 +71,8 @@ export default function ApprovalsPanel({
   };
   const toggle = (id: string) => {
     setOpen((o) => ({ ...o, [id]: !o[id] }));
-    if (actions.find((x) => x.id === id)?.kind === "jira_ticket") loadJiraProjects();
+    const a = actions.find((x) => x.id === id);
+    if (a && routesToJira(a)) loadJiraProjects();
   };
 
   const approve = (a: ProposedAction, mode?: string) => {
@@ -72,7 +80,7 @@ export default function ApprovalsPanel({
     const payload: Record<string, unknown> = {};
     if (field) payload[field] = edits[a.id] ?? originalValue(a);
     if (a.kind === "email" && mode) payload.mode = mode;
-    if (a.kind === "jira_ticket" && jiraProj[a.id]) payload.project_key = jiraProj[a.id];
+    if (routesToJira(a) && jiraProj[a.id]) payload.project_key = jiraProj[a.id];
     return onApprove(a.id, Object.keys(payload).length ? payload : undefined);
   };
 
@@ -81,7 +89,7 @@ export default function ApprovalsPanel({
     const value = edits[a.id] ?? originalValue(a);
     const result = a.result as Record<string, unknown> | undefined;
     const jiraPicker =
-      a.kind === "jira_ticket" && a.status === "proposed" ? (
+      routesToJira(a) && a.status === "proposed" ? (
         <div style={{ marginBottom: 10 }}>
           <div className="ak-edit-hint" style={{ marginTop: 0, marginBottom: 4 }}>File into Jira project</div>
           <select

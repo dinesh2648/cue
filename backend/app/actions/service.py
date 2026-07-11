@@ -169,11 +169,16 @@ def _email_parts(p: dict, meeting) -> tuple[str, str, str]:
 
 async def _execute(db: Session, action: ProposedAction) -> dict:
     """Perform the write — real connector when the owner has one, else a local draft (approve-then-act)."""
+    from ..packs.registry import pack_for_owner
+
     meeting = db.get(Meeting, action.meeting_id)
     owner = meeting.owner_user_id if meeting else None
     cid = meeting.crm_company_id if meeting else None
     p = action.payload or {}
     kind = action.kind
+    # Engineering employees track work in Jira, not the CRM — route their notes/tasks there
+    # (mirrors the role policy: Jira is engineering-only, HubSpot is customer-facing roles only).
+    engineering = bool(meeting) and pack_for_owner(db, meeting) == "tech"
 
     # ── Notion doc — real page under a shared page; PAT only (DCR/OAuth can't) ─
     if kind == "notion_doc":
@@ -212,6 +217,27 @@ async def _execute(db: Session, action: ProposedAction) -> dict:
             return {"type": "jira_ticket", "key": res.get("key"), "url": res.get("url"), "status": f"created {res.get('key', '')}".strip()}
         rec = _record(db, action.meeting_id, kind, p, "pending")
         return {"type": "jira_ticket", "crm_id": rec.id, "status": "connect Jira to auto-create the ticket"}
+
+    # ── Engineering team: notes/tasks are tracked in Jira, never the CRM ───────
+    if kind in ("note", "task") and engineering:
+        from ..integrations import jira
+
+        if kind == "task":
+            summary = (p.get("title") or action.title or "Task").strip()
+            description = p.get("notes") or ""
+        else:  # note → a Jira issue whose summary is its first line, body the detail
+            text = (p.get("body") or action.title or "").strip()
+            summary = (text.splitlines()[0] if text else action.title) or "Note"
+            description = text
+        summary = summary[:255]
+        token = await _token(db, owner, "jira")
+        if token:
+            res = await jira.create_issue(token, summary, description, p.get("project_key"))
+            return {"type": kind, "key": res.get("key"), "url": res.get("url"),
+                    "status": f"created {res.get('key', '')} in Jira".strip()}
+        rec = _record(db, action.meeting_id, kind, p, "pending")
+        return {"type": kind, "crm_id": rec.id,
+                "status": "connect Jira to file this in your engineering tracker"}
 
     # ── HubSpot note/task — real write when connected, local fallback otherwise ─
     if kind == "note":

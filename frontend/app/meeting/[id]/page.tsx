@@ -369,6 +369,7 @@ export default function MeetingConsole() {
           onApprove={approveAction}
           onReject={rejectAction}
           onApproveAll={approveAll}
+          engineering={meeting?.pack === "tech"}
         />
       )}
 
