@@ -152,6 +152,17 @@ async def callback(
         return RedirectResponse(f"{base}?error=connect_failed")
 
 
+@router.post("/{provider}/check")
+async def check(provider: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Actively test a connection (cheap authenticated ping) and reconcile its stored status.
+
+    Powers the 'Test' button — turns 'connected but silently broken' into a clear, fixable state.
+    """
+    if provider not in CONNECTORS:
+        raise HTTPException(404, "Unknown provider")
+    return await manager.check_connection(db, user.id, provider)
+
+
 @router.post("/{provider}/disconnect")
 def disconnect(provider: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     manager.disconnect(db, user.id, provider)

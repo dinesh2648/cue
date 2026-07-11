@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
+import httpx
 import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -51,6 +52,48 @@ def decode_state(state: str) -> dict:
     return jwt.decode(state, _STATE_SECRET, algorithms=["HS256"])
 
 
+# ── Health (why isn't this working?) ─────────────────────────────────────────
+# Write scopes a connector needs for its actions; if the granted scopes are known and this is
+# absent, the connection is "limited" (reads work, writes will 401 until the user reconnects).
+_WRITE_SCOPES = {
+    "gmail": ("https://www.googleapis.com/auth/gmail.compose", "send & draft email"),
+    "google_calendar": ("https://www.googleapis.com/auth/calendar.events", "create events"),
+}
+
+
+def _is_demo_token(conn: ConnectorConnection) -> bool:
+    if not conn.access_token_enc:
+        return False
+    try:
+        tok = decrypt(conn.access_token_enc)
+    except Exception:  # pragma: no cover - corrupt ciphertext
+        return False
+    return bool(tok and tok.startswith("demo-"))
+
+
+def connection_health(conn: ConnectorConnection | None) -> tuple[str, str]:
+    """Verdict about a connection WITHOUT a network call, from stored state alone.
+
+    Returns (health, reason). health ∈ healthy | limited | expired | error | demo | disconnected.
+    'reason' is a user-facing one-liner that says how to fix it (empty when healthy).
+    """
+    if conn is None or conn.status == "disconnected":
+        return "disconnected", ""
+    if conn.status == "error":
+        return "error", conn.error or "Something went wrong — reconnect this tool."
+    if _is_demo_token(conn):
+        return "demo", "Demo connection — connect your real account to answer from live data."
+    exp = conn.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp is not None and _now() >= exp and not conn.refresh_token_enc:
+        return "expired", "Access expired — reconnect to refresh it."
+    req = _WRITE_SCOPES.get(conn.provider)
+    if req and conn.scopes and req[0] not in conn.scopes:
+        return "limited", f"Connected for reading only — reconnect to grant permission to {req[1]}."
+    return "healthy", ""
+
+
 # ── Catalog + status ─────────────────────────────────────────────────────────
 def catalog(db: Session, user: User) -> list[dict]:
     conns = {
@@ -60,6 +103,7 @@ def catalog(db: Session, user: User) -> list[dict]:
     out = []
     for key, c in CONNECTORS.items():
         conn = conns.get(key)
+        health, reason = connection_health(conn)
         out.append(
             {
                 "provider": key,
@@ -76,6 +120,9 @@ def catalog(db: Session, user: User) -> list[dict]:
                 "status": conn.status if conn else "disconnected",
                 "account_label": conn.account_label if conn else "",
                 "error": conn.error if conn else None,
+                "health": health,
+                "health_reason": reason,
+                "can_test": bool(conn and conn.status != "disconnected"),
             }
         )
     return out
@@ -342,3 +389,69 @@ async def active_mcp_servers(db: Session, user_id: str) -> list[dict]:
             "transport": transport, "inprocess": inprocess,
         })
     return servers
+
+
+# ── Active connection test ("Test" button) ───────────────────────────────────
+async def _ping(provider: str, token: str) -> tuple[bool, str]:
+    """Cheapest possible authenticated call to prove the token still works.
+
+    Returns (ok, detail). ok=None-style handling isn't used — a provider with no test
+    endpoint is treated by the caller as 'can't actively verify' via the returned detail.
+    """
+    conn = CONNECTORS.get(provider)
+    url = conn.oauth.userinfo_url if conn else None
+    if not url:
+        return True, "no-test-endpoint"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            if provider == "hubspot":
+                # HubSpot verifies a token by path, not Authorization header.
+                resp = await client.get(url + token)
+            else:
+                resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+        if provider == "slack":
+            # Slack always returns 200; the truth is in the JSON `ok` field.
+            data = resp.json()
+            return (bool(data.get("ok")), "" if data.get("ok") else str(data.get("error", "invalid_auth")))
+        if resp.status_code in (401, 403):
+            return False, "token rejected"
+        if resp.status_code >= 400:
+            return False, f"HTTP {resp.status_code}"
+        return True, ""
+    except Exception as exc:  # pragma: no cover - network
+        return False, f"unreachable: {str(exc)[:100]}"
+
+
+async def check_connection(db: Session, user_id: str, provider: str) -> dict:
+    """Actively test a connection and reconcile stored status. Returns {ok, status, health, reason}."""
+    if provider not in CONNECTORS:
+        return {"ok": False, "status": "unknown", "health": "error", "reason": "Unknown provider."}
+    conn = _get(db, user_id, provider)
+    if conn is None or conn.status == "disconnected":
+        return {"ok": False, "status": "disconnected", "health": "disconnected", "reason": "Not connected."}
+    token = await _valid_access_token(db, conn)
+    if not token:
+        health, reason = connection_health(conn)
+        return {"ok": False, "status": conn.status, "health": health if health != "healthy" else "error",
+                "reason": reason or "No valid token — reconnect this tool."}
+    if token.startswith("demo-"):
+        return {"ok": True, "status": "connected", "health": "demo",
+                "reason": "Demo connection — connect your real account to answer from live data."}
+
+    ok, detail = await _ping(provider, token)
+    if detail == "no-test-endpoint":
+        health, reason = connection_health(conn)
+        return {"ok": health in ("healthy", "limited"), "status": conn.status, "health": health,
+                "reason": reason or "Connected. (No live test available for this provider.)"}
+    if ok:
+        if conn.status != "connected" or conn.error:  # recovered — clear the stale error
+            conn.status, conn.error = "connected", None
+            db.commit()
+        health, reason = connection_health(conn)
+        return {"ok": True, "status": "connected", "health": health,
+                "reason": reason or "Working — the copilot can read this as you."}
+    # failed — record it so the catalog reflects the problem next load
+    conn.status = "error"
+    conn.error = f"Test failed: {detail}. Reconnect to fix."
+    db.commit()
+    return {"ok": False, "status": "error", "health": "error", "reason": conn.error}

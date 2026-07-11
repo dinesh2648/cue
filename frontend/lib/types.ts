@@ -71,6 +71,16 @@ export interface Connector {
   status: "connected" | "disconnected" | "error";
   account_label: string;
   error: string | null;
+  health?: "healthy" | "limited" | "expired" | "error" | "demo" | "disconnected";
+  health_reason?: string;
+  can_test?: boolean;
+}
+
+export interface ConnectorCheck {
+  ok: boolean;
+  status: string;
+  health: string;
+  reason: string;
 }
 
 export interface CalendarEvent {

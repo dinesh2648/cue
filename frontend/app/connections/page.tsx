@@ -15,6 +15,7 @@ export default function ConnectionsPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ token: "", mcp: "", label: "" });
   const [busy, setBusy] = useState<string | null>(null);
+  const [checking, setChecking] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -84,6 +85,34 @@ export default function ConnectionsPage() {
     }
   };
 
+  // Actively test a connection so "connected but silently broken" becomes visible + fixable.
+  const test = async (provider: string) => {
+    setChecking(provider);
+    try {
+      const r = await api.checkConnector(provider);
+      flash((r.ok ? "✓ " : "⚠ ") + (r.reason || (r.ok ? "Working" : "Not working")));
+      load();
+    } catch {
+      flash("Couldn't run the test.");
+    } finally {
+      setChecking(null);
+    }
+  };
+
+  // Health → chip color + label. Amber = works but degraded (reconnect to fix), red = broken.
+  const AMBER = "#c77a00";
+  const healthChip = (c: Connector): { label: string; color?: string; live: boolean } => {
+    if (c.status !== "connected")
+      return c.status === "error"
+        ? { label: "error", color: "var(--red)", live: false }
+        : { label: "not connected", live: false };
+    const h = c.health || "healthy";
+    if (h === "healthy") return { label: "connected", live: true };
+    if (h === "error" || h === "expired") return { label: h, color: "var(--red)", live: false };
+    if (h === "demo") return { label: "demo", color: "var(--muted)", live: false };
+    return { label: h, color: AMBER, live: false }; // limited
+  };
+
   return (
     <main className="container">
       <h1 className="page-title">Your connections</h1>
@@ -102,16 +131,27 @@ export default function ConnectionsPage() {
                 <div className="conn-name">{c.name}</div>
                 <div className="conn-cat">{c.category}</div>
               </div>
-              {c.status === "connected" ? (
-                <span className="pill live"><span className="led" />connected</span>
-              ) : c.status === "error" ? (
-                <span className="pill" style={{ color: "var(--red)" }}><span className="led" />error</span>
-              ) : (
-                <span className="pill"><span className="led" />not connected</span>
-              )}
+              {(() => {
+                const chip = healthChip(c);
+                return (
+                  <span
+                    className={`pill ${chip.live ? "live" : ""}`}
+                    style={chip.color ? { color: chip.color } : undefined}
+                    title={c.health_reason || undefined}
+                  >
+                    <span className="led" />{chip.label}
+                  </span>
+                );
+              })()}
             </div>
 
             <p className="conn-desc">{c.description}</p>
+
+            {c.status === "connected" && c.health && c.health !== "healthy" && c.health_reason && (
+              <div style={{ fontSize: 12.5, color: c.health === "error" || c.health === "expired" ? "var(--red)" : "#c77a00", marginTop: 2, marginBottom: 2, lineHeight: 1.5 }}>
+                ⚠ {c.health_reason}
+              </div>
+            )}
 
             <div className="conn-meta">
               {c.account_label && c.status === "connected" && (
@@ -163,9 +203,14 @@ export default function ConnectionsPage() {
             ) : (
               <div style={{ marginTop: 14 }}>
                 {c.status === "connected" ? (
-                  <button className="btn sm" disabled={busy === c.provider} onClick={() => disconnect(c.provider)}>
-                    Disconnect
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn sm" disabled={checking === c.provider} onClick={() => test(c.provider)} title="Run a live check that this connection still works">
+                      {checking === c.provider ? "Testing…" : "Test"}
+                    </button>
+                    <button className="btn sm" disabled={busy === c.provider} onClick={() => disconnect(c.provider)}>
+                      Disconnect
+                    </button>
+                  </div>
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <button className="btn primary sm" disabled={busy === c.provider} onClick={() => connect(c.provider)}>

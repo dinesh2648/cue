@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, ProposedAction, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -141,6 +141,8 @@ export const api = {
       body: JSON.stringify({ token, mcp_url: mcp_url || null, account_label: account_label || "" }),
     }),
   disconnect: (provider: string) => request<{ ok: boolean }>(`/api/connectors/${provider}/disconnect`, { method: "POST" }),
+  checkConnector: (provider: string) =>
+    request<ConnectorCheck>(`/api/connectors/${provider}/check`, { method: "POST" }),
 
   ask: (query: string, context = "", meeting_id?: string, selection?: string[]) =>
     request<AskResult>("/api/ask", { method: "POST", body: JSON.stringify({ query, context, meeting_id, selection }) }),
