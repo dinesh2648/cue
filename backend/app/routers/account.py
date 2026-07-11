@@ -15,6 +15,7 @@ from ..models import (
     MeetingScorecard,
     MeetingSummary,
     Organization,
+    ProposedAction,
     Suggestion,
     TranscriptSegment,
     User,
@@ -316,15 +317,29 @@ def team_members(user: User = Depends(get_current_user), db: Session = Depends(g
         if mids else {}
     )
 
+    # Actions (approve-then-act writes) per meeting — the team's task/activity trail.
+    meeting_by_id = {m.id: m for m in meetings}
+    acts_by_meeting: dict[str, list[ProposedAction]] = {}
+    if mids:
+        for a in db.scalars(
+            select(ProposedAction)
+            .where(ProposedAction.meeting_id.in_(mids))
+            .order_by(ProposedAction.created_at.desc())
+        ):
+            acts_by_meeting.setdefault(a.meeting_id, []).append(a)
+
     by_owner: dict[str, list[dict]] = {}
     for m in meetings:
         when = m.ended_at or m.created_at
+        macts = acts_by_meeting.get(m.id, [])
         by_owner.setdefault(m.owner_user_id or "", []).append({
             "id": m.id,
             "title": m.title or m.customer_company or "Untitled meeting",
             "customer": m.customer_company,
             "date": when.isoformat() if when else "",
             "status": m.status,
+            "actions": len(macts),
+            "actions_done": sum(1 for x in macts if x.status in ("executed", "undone")),
             "persona": "tech" if m.pack == "tech" else "sales",
             "suggestions": sugg_counts.get(m.id, 0),
             "has_transcript": seg_counts.get(m.id, 0) > 0,
@@ -333,10 +348,39 @@ def team_members(user: User = Depends(get_current_user), db: Session = Depends(g
             "score": scores.get(m.id),
         })
 
+    def _icon(kind: str) -> str:
+        return {"note": "📝", "task": "✅", "email": "✉️", "jira_ticket": "🎫", "notion_doc": "📑",
+                "reminder": "⏰", "document": "📎", "workflow": "⚙️", "ticket": "🎫", "pr": "🔀"}.get(kind, "•")
+
     out = []
     for mem in members:
         ms = by_owner.get(mem.id, [])
         scored = [x["score"] for x in ms if x["score"] is not None]
+        # This member's task/activity trail — every approve-then-act write across their meetings.
+        member_acts = [a for mid in [x["id"] for x in ms] for a in acts_by_meeting.get(mid, [])]
+        member_acts.sort(key=lambda a: a.decided_at or a.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        activity = {
+            "total": len(member_acts),
+            "executed": sum(1 for a in member_acts if a.status == "executed"),
+            "failed": sum(1 for a in member_acts if a.status == "failed"),
+            "undone": sum(1 for a in member_acts if a.status == "undone"),
+            "proposed": sum(1 for a in member_acts if a.status == "proposed"),
+        }
+        recent_actions = [
+            {
+                "id": a.id,
+                "kind": a.kind,
+                "icon": _icon(a.kind),
+                "title": a.title,
+                "status": a.status,
+                "url": (a.result or {}).get("url", "") or "",
+                "result_status": (a.result or {}).get("status", ""),
+                "meeting_id": a.meeting_id,
+                "meeting_title": (lambda mm: (mm.title or mm.customer_company or "Meeting") if mm else "Meeting")(meeting_by_id.get(a.meeting_id)),
+                "when": (a.decided_at or a.created_at).isoformat() if (a.decided_at or a.created_at) else "",
+            }
+            for a in member_acts[:15]
+        ]
         out.append({
             "id": mem.id,
             "name": mem.name or mem.email or "Unknown",
@@ -345,6 +389,8 @@ def team_members(user: User = Depends(get_current_user), db: Session = Depends(g
             "team": mem.team,
             "meeting_count": len(ms),
             "avg_score": round(sum(scored) / len(scored)) if scored else None,
+            "activity": activity,
+            "recent_actions": recent_actions,
             "meetings": ms[:50],
         })
     out.sort(key=lambda x: (-x["meeting_count"], (x["name"] or "").lower()))

@@ -86,17 +86,34 @@ function fmtDate(d: string): string {
 const teamLabelOf = (t: string) =>
   ({ tech: "Tech", ops: "Ops", finance: "Finance", hr: "HR", marketing: "Marketing", cs: "CS" } as Record<string, string>)[t] || "Sales";
 
+function actionStatusColor(s: string): string {
+  if (s === "executed") return "var(--green, #12946a)";
+  if (s === "failed") return "var(--red, #ce4257)";
+  if (s === "proposed") return "#c77a00";
+  return "var(--muted, #666c90)"; // undone / rejected
+}
+
 function TeamRow({ m }: { m: TeamMember }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"meetings" | "activity">("meetings");
   const status = m.meeting_count > 0 ? "active" : "idle";
+  const acts = m.recent_actions || [];
+  const activity = m.activity;
+  const hasDetail = m.meeting_count > 0 || acts.length > 0;
+
   return (
     <>
-      <div className="tt-row" onClick={() => m.meeting_count && setOpen(!open)}>
+      <div className="tt-row" onClick={() => hasDetail && setOpen(!open)}>
         <div className="tt-member">
           <span className="tt-avatar">{(m.name || m.email || "?").charAt(0).toUpperCase()}</span>
           <div style={{ minWidth: 0 }}>
             <div className="tt-name">{m.name || m.email}</div>
-            <div className="tt-email">{m.email}</div>
+            <div className="tt-email">
+              {m.email}
+              {activity && activity.total > 0 && (
+                <span style={{ color: "var(--faint)" }}> · 🗂 {activity.total} action{activity.total === 1 ? "" : "s"}</span>
+              )}
+            </div>
           </div>
         </div>
         <span className="tt-cell" style={{ textTransform: "capitalize" }}>{m.role} · {teamLabelOf(m.team)}</span>
@@ -106,25 +123,72 @@ function TeamRow({ m }: { m: TeamMember }) {
       </div>
       {open && (
         <div className="tt-expand">
-          {m.meetings.map((mt) => (
-            <Link key={mt.id} href={`/meeting/${mt.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-              <div className="card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <div style={{ flex: 1, minWidth: 180 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{mt.title}</div>
-                  <div style={{ color: "var(--muted)", fontSize: 12 }}>{fmtDate(mt.date)} · {mt.status}</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button className={`btn sm ${tab === "meetings" ? "primary" : ""}`} onClick={() => setTab("meetings")}>
+              Meetings ({m.meeting_count})
+            </button>
+            <button className={`btn sm ${tab === "activity" ? "primary" : ""}`} onClick={() => setTab("activity")}>
+              Activity ({activity?.total ?? 0})
+            </button>
+          </div>
+
+          {tab === "meetings" && (
+            <>
+              {m.meetings.map((mt) => (
+                <Link key={mt.id} href={`/meeting/${mt.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                  <div className="card" style={{ padding: "10px 12px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{mt.title}</div>
+                      <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                        {mt.customer ? `${mt.customer} · ` : ""}{fmtDate(mt.date)} · {mt.status}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11.5, alignItems: "center" }}>
+                      <span className="badge">{mt.persona === "tech" ? "Tech" : "Sales"}</span>
+                      {mt.has_transcript && <span className="source-chip">📄 Transcript</span>}
+                      {mt.suggestions > 0 && <span className="source-chip">💡 {mt.suggestions} live answers</span>}
+                      {mt.has_summary && <span className="source-chip">📝 Summary</span>}
+                      {mt.has_recording && <span className="source-chip">🎥 Recording</span>}
+                      {mt.actions > 0 && <span className="source-chip">✅ {mt.actions_done}/{mt.actions} actions</span>}
+                      {mt.score != null && <span className="source-chip" style={{ fontWeight: 700, color: scoreColor(mt.score) }}>⭐ {mt.score}</span>}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              {m.meeting_count === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No meetings yet.</div>}
+            </>
+          )}
+
+          {tab === "activity" && (
+            <>
+              {activity && activity.total > 0 && (
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>
+                  <span>✅ {activity.executed} done</span>
+                  {activity.proposed > 0 && <span style={{ color: "#c77a00" }}>◷ {activity.proposed} awaiting approval</span>}
+                  {activity.undone > 0 && <span>↩ {activity.undone} undone</span>}
+                  {activity.failed > 0 && <span style={{ color: "var(--red, #ce4257)" }}>✗ {activity.failed} failed</span>}
                 </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11.5, alignItems: "center" }}>
-                  <span className="badge">{mt.persona === "tech" ? "Tech" : "Sales"}</span>
-                  {mt.has_transcript && <span className="source-chip">📄 Transcript</span>}
-                  {mt.suggestions > 0 && <span className="source-chip">💡 {mt.suggestions} live answers</span>}
-                  {mt.has_summary && <span className="source-chip">📝 Summary</span>}
-                  {mt.has_recording && <span className="source-chip">🎥 Recording</span>}
-                  {mt.score != null && <span className="source-chip" style={{ fontWeight: 700, color: scoreColor(mt.score) }}>⭐ {mt.score}</span>}
+              )}
+              {acts.map((a) => (
+                <div key={a.id} className="card" style={{ padding: "8px 12px", display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 16 }}>{a.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, textDecoration: a.status === "undone" ? "line-through" : "none" }}>{a.title}</div>
+                    <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                      <Link href={`/meeting/${a.meeting_id}`} style={{ color: "var(--muted)" }}>{a.meeting_title}</Link>
+                      {" · "}{a.kind}{a.when ? ` · ${fmtDate(a.when)}` : ""}
+                      {a.result_status ? ` · ${a.result_status}` : ""}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: actionStatusColor(a.status), textTransform: "capitalize" }}>{a.status}</span>
+                  {a.url && a.status !== "undone" && (
+                    <a href={a.url} target="_blank" rel="noreferrer" className="btn ghost sm">open</a>
+                  )}
                 </div>
-              </div>
-            </Link>
-          ))}
-          {m.meeting_count === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No meetings yet.</div>}
+              ))}
+              {acts.length === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>No actions taken yet.</div>}
+            </>
+          )}
         </div>
       )}
     </>
@@ -173,8 +237,9 @@ export default function TeamPage() {
         <section style={{ marginTop: 32 }}>
           <h2 style={{ fontSize: 20, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Team members &amp; meetings</h2>
           <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 0, marginBottom: 14 }}>
-            Everyone you can see, with their meetings. Click a row to open their meetings — transcript,
-            live answers, summary and recording.
+            Everyone you can see. Click a row to open a member&apos;s <b>meetings</b> — each with its
+            transcript, live answers, summary, recording and score — and their <b>activity</b>: every
+            action the copilot took for them (tickets, notes, emails, docs) with its status.
           </p>
           <div className="team-table">
             <div className="tt-head"><span>Member</span><span>Role · team</span><span>Calls</span><span>Avg score</span><span>Status</span></div>

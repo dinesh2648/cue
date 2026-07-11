@@ -192,10 +192,31 @@ export interface TeamMemberMeeting {
   status: string;
   persona: "sales" | "tech";
   suggestions: number;
+  actions: number;
+  actions_done: number;
   has_transcript: boolean;
   has_summary: boolean;
   has_recording: boolean;
   score: number | null;
+}
+export interface TeamMemberAction {
+  id: string;
+  kind: string;
+  icon: string;
+  title: string;
+  status: "proposed" | "executed" | "failed" | "rejected" | "undone";
+  url: string;
+  result_status: string;
+  meeting_id: string;
+  meeting_title: string;
+  when: string;
+}
+export interface TeamMemberActivity {
+  total: number;
+  executed: number;
+  failed: number;
+  undone: number;
+  proposed: number;
 }
 export interface TeamMember {
   id: string;
@@ -205,6 +226,8 @@ export interface TeamMember {
   team: string;
   meeting_count: number;
   avg_score: number | null;
+  activity?: TeamMemberActivity;
+  recent_actions?: TeamMemberAction[];
   meetings: TeamMemberMeeting[];
 }
 export interface TeamMembers {
