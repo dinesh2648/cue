@@ -162,6 +162,7 @@ export interface CoachingTip {
 }
 export interface Scorecard {
   status?: string;
+  detail?: string;
   rep_name: string;
   overall_score: number;
   headline: string;

@@ -104,8 +104,10 @@ export const api = {
     const token = await authToken();
     return `${API}/api/meetings/${id}/recording/download${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   },
-  scorecard: (id: string, refresh = false) =>
-    request<Scorecard>(`/api/meetings/${id}/scorecard${refresh ? "?refresh=1" : ""}`),
+  scorecard: (id: string, refresh = false, peek = false) => {
+    const q = refresh ? "?refresh=1" : peek ? "?peek=1" : "";
+    return request<Scorecard>(`/api/meetings/${id}/scorecard${q}`);
+  },
   meetingHealth: (id: string) => request<MeetingHealth>(`/api/meetings/${id}/health`),
   meetingInsights: (id: string) =>
     request<{ insights: Insight[]; running_summary: string; current_topic: string; open_questions: string[]; decisions: string[]; action_items: string[]; risks: string[] }>(

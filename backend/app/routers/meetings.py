@@ -1,6 +1,7 @@
 """Meeting lifecycle API: create → start (live) → transcript/intents/suggestions → end."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -49,6 +50,7 @@ from ..seed.data import COMPANY_ID
 _LIMIT_MSG = "Monthly meeting limit reached for your plan. Upgrade to keep going."
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
+log = logging.getLogger("copilot.meetings")
 
 
 class StartRequest(BaseModel):
@@ -424,13 +426,18 @@ def _scorecard_dict(sc: MeetingScorecard) -> dict:
 
 @router.get("/{meeting_id}/scorecard")
 async def scorecard(
-    meeting_id: str, refresh: int = 0, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    meeting_id: str, refresh: int = 0, peek: int = 0,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict:
-    """Rep coaching scorecard for this call. Generates + caches on first request."""
+    """Rep coaching scorecard for this call. Returns the cached one instantly; generates + caches
+    on first request. `peek=1` returns the existing scorecard WITHOUT generating (so the panel can
+    show an auto-generated card on open without triggering an expensive build for old meetings)."""
     meeting = _authorized(db, meeting_id, user)
     existing = db.scalar(select(MeetingScorecard).where(MeetingScorecard.meeting_id == meeting_id))
     if existing and not refresh:
         return _scorecard_dict(existing)
+    if peek:
+        return {"status": "none"}
 
     segs = list(
         db.scalars(
@@ -441,11 +448,15 @@ async def scorecard(
         return {"status": "no_transcript"}
     transcript = "\n".join(f"{s.speaker}: {s.text}" for s in segs)
     persona = "tech" if pack_for_owner(db, meeting) == "tech" else "sales"
-    data = await coaching.generate_scorecard(
-        {"rep_name": meeting.rep_name, "customer_company": meeting.customer_company, "customer_contact": meeting.customer_contact},
-        [{"speaker": s.speaker, "text": s.text, "role": s.role} for s in segs],
-        transcript, persona=persona,
-    )
+    try:
+        data = await coaching.generate_scorecard(
+            {"rep_name": meeting.rep_name, "customer_company": meeting.customer_company, "customer_contact": meeting.customer_contact},
+            [{"speaker": s.speaker, "text": s.text, "role": s.role} for s in segs],
+            transcript, persona=persona,
+        )
+    except Exception as exc:  # LLM/network — surface it instead of a 500 so the UI can explain + retry
+        log.warning("scorecard generation failed for %s: %s", meeting_id, exc)
+        return {"status": "error", "detail": str(exc)[:160]}
     if not data:
         return {"status": "unavailable"}
 
@@ -571,4 +582,6 @@ async def end_meeting(meeting_id: str, user: User = Depends(get_current_user), d
     from ..meetings_ops import finalize_meeting
 
     meeting = _authorized(db, meeting_id, user)
-    return await finalize_meeting(db, meeting)
+    # Auto-generate the coaching scorecard on close (same as the auto-pilot path), so it's ready
+    # the moment the meeting ends instead of needing a manual "Score this call".
+    return await finalize_meeting(db, meeting, with_scorecard=True)

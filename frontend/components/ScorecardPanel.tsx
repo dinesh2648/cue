@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Scorecard } from "@/lib/types";
 
@@ -23,16 +23,34 @@ export default function ScorecardPanel({ meetingId }: { meetingId: string }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  const apply = (d: Scorecard): boolean => {
+    if (d.status && d.status !== "ready") {
+      if (d.status === "none") return false; // no scorecard yet (peek) — show the button
+      setMsg(
+        d.status === "no_transcript" ? "No transcript captured — nothing to coach on yet."
+        : d.status === "error" ? `Couldn't generate a scorecard: ${d.detail || "the AI service errored"}. Try again.`
+        : "Couldn't generate a scorecard for this call."
+      );
+      return false;
+    }
+    setSc(d);
+    return true;
+  };
+
+  // On open, show the scorecard if it was already generated (it's auto-generated on meeting close).
+  // peek=true never triggers an expensive build — it only returns an existing card.
+  useEffect(() => {
+    let alive = true;
+    api.scorecard(meetingId, false, true).then((d) => { if (alive) apply(d); }).catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingId]);
+
   const load = async (refresh = false) => {
     setLoading(true);
     setMsg(null);
     try {
-      const d = await api.scorecard(meetingId, refresh);
-      if (d.status && d.status !== "ready") {
-        setMsg(d.status === "no_transcript" ? "No transcript captured — nothing to coach on yet." : "Couldn't generate a scorecard for this call.");
-      } else {
-        setSc(d);
-      }
+      apply(await api.scorecard(meetingId, refresh));
     } catch {
       setMsg("Couldn't load the scorecard.");
     } finally {

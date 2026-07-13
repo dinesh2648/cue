@@ -30,12 +30,14 @@ async def _find_event(db: Session, user: User, event_id: str) -> dict:
     if not token or token.startswith("demo-"):
         raise HTTPException(400, "Connect Google Calendar with your real Google account first")
     try:
-        events = await google_calendar.list_upcoming(token)
+        # Wide window so prep works for any upcoming meeting, not just the next handful — the
+        # default (8 events / 30 days) made manual prep 404 intermittently for events further out.
+        events = await google_calendar.list_upcoming(token, max_results=100, days=90)
     except Exception as exc:  # pragma: no cover - network/parse
         raise HTTPException(502, f"Could not read your calendar: {str(exc)[:120]}")
     event = next((e for e in events if e.get("id") == event_id), None)
     if event is None:
-        raise HTTPException(404, "Event not found on your upcoming calendar")
+        raise HTTPException(404, "That meeting isn't on your upcoming calendar (next 90 days) — reload the calendar and try again")
     return event
 
 
