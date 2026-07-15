@@ -346,7 +346,7 @@ export default function SettingsPage() {
                         <option value="member">Member</option>
                         <option value="manager">Manager</option>
                         <option value="admin">Admin</option>
-                        <option value="owner" disabled>Owner</option>
+                        <option value="owner">Owner</option>
                       </select>
                       <select
                         className="member-select"

@@ -234,7 +234,17 @@ def update_member(
     member = db.get(User, member_id)
     if member is None or member.org_id != user.org_id:
         raise HTTPException(404, "Member not found in your workspace")
-    if body.role in ("member", "manager", "admin"):
+    if body.role in ("member", "manager", "admin", "owner"):
+        # A workspace must always keep at least one owner — block demoting the last one so nobody
+        # gets locked out of team management. (Multiple owners are allowed.)
+        if member.role == "owner" and body.role != "owner":
+            other_owners = db.scalar(
+                select(func.count()).select_from(User).where(
+                    User.org_id == user.org_id, User.role == "owner", User.id != member.id
+                )
+            ) or 0
+            if other_owners == 0:
+                raise HTTPException(400, "Your workspace must keep at least one owner — promote someone else first.")
         member.role = body.role
     if body.team in ("sales", "tech", "ops"):
         member.team = body.team
