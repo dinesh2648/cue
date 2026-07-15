@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { BillingInfo, OrgInfo } from "@/lib/types";
-
-const lim = (v: number | null) => (v == null ? "∞" : v);
-const pct = (used: number, limit: number | null) =>
-  limit == null ? 8 : Math.min(100, Math.round((100 * used) / limit));
+import type { OrgInfo } from "@/lib/types";
 
 const DEPARTMENTS: [string, string][] = [
   ["sales", "🟦 Sales"], ["tech", "🟩 Engineering"], ["ops", "⬜ Operations"],
@@ -37,7 +33,6 @@ function Label({ children, hint }: { children: React.ReactNode; hint?: string })
 }
 
 export default function SettingsPage() {
-  const [billing, setBilling] = useState<BillingInfo | null>(null);
   const [org, setOrg] = useState<OrgInfo | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -49,7 +44,6 @@ export default function SettingsPage() {
   const [canManageCompany, setCanManageCompany] = useState(false);
 
   const load = useCallback(() => {
-    api.billing().then(setBilling).catch(() => {});
     api.org().then(setOrg).catch(() => {});
     api.me().then((m) => {
       setAutopilot(!!m.autopilot);
@@ -151,50 +145,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     load();
-    const q = new URLSearchParams(window.location.search);
-    if (q.get("upgraded")) {
-      setToast(`✓ Upgraded to ${q.get("upgraded")}`);
-      window.history.replaceState({}, "", window.location.pathname);
-      setTimeout(() => setToast(null), 2600);
-      setTimeout(load, 300);
-    }
   }, [load]);
 
-  const upgrade = async (plan: string) => {
-    setBusy(plan);
-    try {
-      const r = await api.checkout(plan);
-      if (r.live) window.location.href = r.url;
-      else {
-        setToast(`✓ Upgraded to ${plan}`);
-        setTimeout(() => setToast(null), 2600);
-        load();
-        setBusy(null);
-      }
-    } catch {
-      setToast("Couldn't start checkout.");
-      setBusy(null);
-    }
-  };
-
-  const manage = async () => {
-    setBusy("portal");
-    try {
-      const r = await api.portal();
-      window.location.href = r.url;
-    } catch {
-      setToast("Billing portal unavailable in this environment.");
-      setBusy(null);
-    }
-  };
-
-  const u = billing?.usage;
   const pf = (k: keyof typeof prof) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setProf({ ...prof, [k]: e.target.value });
   const cf = (k: keyof typeof company) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setCompany({ ...company, [k]: e.target.value });
 
   return (
     <main className="container">
-      <h1 className="page-title">Settings &amp; billing</h1>
+      <h1 className="page-title">Settings</h1>
 
       <div className="settings-layout">
         <nav className="settings-nav">
@@ -202,7 +160,6 @@ export default function SettingsPage() {
           <a href="#s-capabilities">🎛️ Capabilities</a>
           <a href="#s-profile">🧑‍💼 Your profile</a>
           <a href="#s-company">🏢 Company</a>
-          <a href="#s-billing">💳 Plan &amp; billing</a>
           <a href="#s-team">👥 Team</a>
         </nav>
         <div className="settings-col">
@@ -351,77 +308,6 @@ export default function SettingsPage() {
             </div>
           )}
         </fieldset>
-      </div>
-
-      <div id="s-billing" />
-      {u && billing && (
-        <div className="card pad" style={{ marginBottom: 22 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ flex: 1 }}>
-              <div className="section-title" style={{ marginBottom: 4 }}>Current plan</div>
-              <div style={{ fontSize: 22, fontWeight: 800 }}>
-                {u.plan_name}
-                {!u.billing_enabled && (
-                  <span className="pill" style={{ marginLeft: 10, fontSize: 11 }}>dev billing</span>
-                )}
-              </div>
-            </div>
-            {billing.org.plan !== "free" && (
-              <button className="btn sm" disabled={busy === "portal"} onClick={manage}>
-                Manage billing
-              </button>
-            )}
-          </div>
-
-          <div className="usage-grid">
-            <div>
-              <div className="usage-label">
-                <span>Meetings this month</span>
-                <b>{u.meetings_used} / {lim(u.meetings_limit)}</b>
-              </div>
-              <div className="usage-bar"><span style={{ width: `${pct(u.meetings_used, u.meetings_limit)}%` }} /></div>
-            </div>
-            <div>
-              <div className="usage-label">
-                <span>Connectors</span>
-                <b>{u.connectors_used} / {lim(u.connectors_limit)}</b>
-              </div>
-              <div className="usage-bar"><span style={{ width: `${pct(u.connectors_used, u.connectors_limit)}%` }} /></div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="section-title">Plans</div>
-      <div className="plan-grid">
-        {billing?.plans.map((p) => {
-          const current = billing.org.plan === p.key;
-          return (
-            <div key={p.key} className={`plan-card ${current ? "current" : ""}`}>
-              <div className="plan-name">{p.name}</div>
-              <div className="plan-price">
-                {p.price_monthly == null ? "Custom" : p.price_monthly === 0 ? "Free" : `$${p.price_monthly}`}
-                {p.price_monthly ? <span>/mo</span> : null}
-              </div>
-              <p className="plan-blurb">{p.blurb}</p>
-              <ul className="plan-feats">
-                <li>{p.meetings_per_month == null ? "Unlimited" : p.meetings_per_month} meetings / mo</li>
-                <li>{p.max_connectors == null ? "All" : p.max_connectors} connectors</li>
-                <li className={p.recall ? "on" : "off"}>{p.recall ? "✓" : "—"} Real meeting bots (Recall.ai)</li>
-                <li className={p.sso ? "on" : "off"}>{p.sso ? "✓" : "—"} SSO &amp; custom limits</li>
-              </ul>
-              {current ? (
-                <button className="btn sm" disabled style={{ width: "100%" }}>Current plan</button>
-              ) : p.key === "free" ? (
-                <span />
-              ) : (
-                <button className="btn primary sm" style={{ width: "100%" }} disabled={busy === p.key} onClick={() => upgrade(p.key)}>
-                  {busy === p.key ? "…" : p.key === "enterprise" ? "Contact sales / Upgrade" : "Upgrade"}
-                </button>
-              )}
-            </div>
-          );
-        })}
       </div>
 
       <div id="s-team" />

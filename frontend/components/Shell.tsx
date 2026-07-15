@@ -21,7 +21,7 @@ const TITLES: [string, string][] = [
   ["/connections", "Connections"],
   ["/activity", "Activity"],
   ["/team", "Team"],
-  ["/settings", "Settings & billing"],
+  ["/settings", "Settings"],
   ["/meeting", "Live meeting"],
   ["/share", "Shared meeting"],
 ];
@@ -64,10 +64,6 @@ export default function Shell({
           ))}
         </nav>
         <div className="cue-side-spacer" />
-        <Link href="/settings" className="cue-side-card">
-          <div className="cue-side-card-title">Upgrade your plan</div>
-          <div className="cue-side-card-sub">Unlock unlimited packs &amp; coaching analytics.</div>
-        </Link>
         {user && (
           <div className="cue-side-user">
             <span className="cue-side-avatar">{initial}</span>
