@@ -278,15 +278,21 @@ async def utterance(
 
 
 @router.get("/{meeting_id}/transcript", response_model=list[SegmentOut])
-def transcript(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[TranscriptSegment]:
+def transcript(
+    meeting_id: str, limit: int = 0, offset: int = 0,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+) -> list[TranscriptSegment]:
+    """Transcript segments (chronological). `limit>0` paginates for lazy loading on the detail page;
+    limit=0 returns everything (backward-compatible for live meetings / summary / share)."""
     _authorized(db, meeting_id, user)
-    return list(
-        db.scalars(
-            select(TranscriptSegment)
-            .where(TranscriptSegment.meeting_id == meeting_id)
-            .order_by(TranscriptSegment.ts)
-        )
+    stmt = (
+        select(TranscriptSegment)
+        .where(TranscriptSegment.meeting_id == meeting_id)
+        .order_by(TranscriptSegment.ts)
     )
+    if limit and limit > 0:
+        stmt = stmt.limit(min(limit, 500)).offset(max(0, offset))
+    return list(db.scalars(stmt))
 
 
 @router.get("/{meeting_id}/intents", response_model=list[IntentOut])
@@ -297,22 +303,46 @@ def intents(meeting_id: str, user: User = Depends(get_current_user), db: Session
     )
 
 
-@router.get("/{meeting_id}/suggestions", response_model=list[SuggestionOut])
-def suggestions(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Suggestion]:
-    _authorized(db, meeting_id, user)
-    # Personalized per participant: each user sees their OWN answers (recipient == them), plus any
-    # legacy/shared ones (recipient NULL). This is what makes two people in the same meeting get
-    # their own grounded answers rather than a single shared card.
-    return list(
-        db.scalars(
-            select(Suggestion)
-            .where(
-                Suggestion.meeting_id == meeting_id,
-                or_(Suggestion.recipient_user_id == user.id, Suggestion.recipient_user_id.is_(None)),
-            )
-            .order_by(Suggestion.created_at)
-        )
+def _suggestion_scope(meeting_id: str, user: User):
+    """Personalized per participant: each user sees their OWN answers (recipient == them), plus any
+    legacy/shared ones (recipient NULL) — so two people in the same meeting get their own grounded
+    answers rather than a single shared card."""
+    return (
+        Suggestion.meeting_id == meeting_id,
+        or_(Suggestion.recipient_user_id == user.id, Suggestion.recipient_user_id.is_(None)),
     )
+
+
+@router.get("/{meeting_id}/suggestions", response_model=list[SuggestionOut])
+def suggestions(
+    meeting_id: str, limit: int = 0, offset: int = 0,
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+) -> list[Suggestion]:
+    """The caller's copilot answers (chronological). `limit>0` paginates for lazy loading;
+    limit=0 returns everything (backward-compatible)."""
+    _authorized(db, meeting_id, user)
+    stmt = select(Suggestion).where(*_suggestion_scope(meeting_id, user)).order_by(Suggestion.created_at)
+    if limit and limit > 0:
+        stmt = stmt.limit(min(limit, 200)).offset(max(0, offset))
+    return list(db.scalars(stmt))
+
+
+@router.get("/{meeting_id}/stats")
+def meeting_stats(meeting_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Lightweight header counts (no payloads) so the meeting cards render instantly, even while the
+    transcript/suggestions lists are still collapsed or lazily paginating."""
+    _authorized(db, meeting_id, user)
+    scope = _suggestion_scope(meeting_id, user)
+    answers = db.scalar(select(func.count()).select_from(Suggestion).where(*scope)) or 0
+    avg_conf = db.scalar(select(func.avg(Suggestion.confidence)).where(*scope))
+    turns = db.scalar(
+        select(func.count()).select_from(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id)
+    ) or 0
+    return {
+        "answers_surfaced": int(answers),
+        "avg_confidence_pct": round(float(avg_conf) * 100) if avg_conf is not None else 0,
+        "transcript_turns": int(turns),
+    }
 
 
 @router.get("/{meeting_id}/health")

@@ -44,6 +44,12 @@ export default function MeetingConsole() {
   // Completed meetings open with the transcript + suggestions collapsed; loaded lazily on expand.
   const [openTx, setOpenTx] = useState(true);
   const [openSug, setOpenSug] = useState(true);
+  // Header counts (loaded on mount, independent of the lazy lists) so the cards are never blank.
+  const [stats, setStats] = useState<{ answers_surfaced: number; avg_confidence_pct: number; transcript_turns: number } | null>(null);
+  const [txMore, setTxMore] = useState(false);
+  const [sugMore, setSugMore] = useState(false);
+  const [txLoading, setTxLoading] = useState(false);
+  const [sugLoading, setSugLoading] = useState(false);
   const toggleTag = (seg: Segment) =>
     setTagged((prev) => (prev.some((t) => t.id === seg.id) ? prev.filter((t) => t.id !== seg.id) : [...prev, seg]));
 
@@ -77,9 +83,30 @@ export default function MeetingConsole() {
   const loadedTx = useRef(false);
   const loadedSug = useRef(false);
 
-  // Lazy fetch — only pull transcript / suggestions the first time a collapsed section is opened.
-  const ensureTranscript = () => { if (loadedTx.current) return; loadedTx.current = true; api.transcript(id).then(setSegments).catch(() => {}); };
-  const ensureSuggest = () => { if (loadedSug.current) return; loadedSug.current = true; api.suggestions(id).then(setSuggestions).catch(() => {}); };
+  // Lazy + paginated fetch — pull one page the first time a collapsed section opens, then append
+  // more on demand. Avoids loading a long meeting's entire transcript/suggestions at once.
+  const TX_PAGE = 60;
+  const SUG_PAGE = 20;
+  const loadTxPage = async (offset: number) => {
+    setTxLoading(true);
+    try {
+      const page = await api.transcript(id, TX_PAGE, offset);
+      setSegments((prev) => (offset === 0 ? page : [...prev, ...page]));
+      setTxMore(page.length === TX_PAGE);
+    } catch { /* keep what we have */ } finally { setTxLoading(false); }
+  };
+  const loadSugPage = async (offset: number) => {
+    setSugLoading(true);
+    try {
+      const page = await api.suggestions(id, SUG_PAGE, offset);
+      setSuggestions((prev) => (offset === 0 ? page : [...prev, ...page]));
+      setSugMore(page.length === SUG_PAGE);
+    } catch { /* keep what we have */ } finally { setSugLoading(false); }
+  };
+  const ensureTranscript = () => { if (loadedTx.current) return; loadedTx.current = true; loadTxPage(0); };
+  const ensureSuggest = () => { if (loadedSug.current) return; loadedSug.current = true; loadSugPage(0); };
+  const loadMoreTx = () => loadTxPage(segments.length);
+  const loadMoreSug = () => loadSugPage(suggestions.length);
   const toggleTx = () => setOpenTx((o) => { const n = !o; if (n) ensureTranscript(); return n; });
   const toggleSug = () => setOpenSug((o) => { const n = !o; if (n) ensureSuggest(); return n; });
 
@@ -103,6 +130,8 @@ export default function MeetingConsole() {
         loadedTx.current = true;
         loadedSug.current = true;
       }
+      // Header counts up front (independent of the lazy lists) so the cards render immediately.
+      api.meetingStats(id).then((st) => alive && setStats(st)).catch(() => {});
       api.listActions(id).then((acts) => alive && setActions(acts)).catch(() => {});
       api.me().then((me) => alive && setCaps(me.capabilities || {})).catch(() => {});
       api.meetingPrepRecord(id).then((p) => alive && p.found && setPrep(p)).catch(() => {});
@@ -163,13 +192,16 @@ export default function MeetingConsole() {
     };
   }, [id]);
 
-  // Auto-scroll
+  // Auto-scroll — only while live (follow the running transcript). On a completed meeting we read
+  // from the top and paginate downward, so auto-scrolling to the bottom would fight the user.
   useEffect(() => {
+    if (status !== "live") return;
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
-  }, [segments, thinking]);
+  }, [segments, thinking, status]);
   useEffect(() => {
+    if (status !== "live") return;
     suggestRef.current?.scrollTo({ top: suggestRef.current.scrollHeight, behavior: "smooth" });
-  }, [suggestions]);
+  }, [suggestions, status]);
 
   const endMeeting = async () => {
     setEnding(true);
@@ -185,8 +217,14 @@ export default function MeetingConsole() {
     }
   };
 
-  const avgConfidence =
-    suggestions.length > 0
+  // For a completed meeting the lists are lazy/paginated, so their array lengths are partial —
+  // use the /stats totals for the header cards. Live meetings grow via WS, so use the arrays.
+  const isEnded = status === "ended";
+  const answersSurfaced = isEnded ? (stats?.answers_surfaced ?? 0) : suggestions.length;
+  const transcriptTurns = isEnded ? (stats?.transcript_turns ?? 0) : segments.length;
+  const avgConfidence = isEnded
+    ? (stats?.avg_confidence_pct ?? 0)
+    : suggestions.length > 0
       ? Math.round((suggestions.reduce((a, s) => a + s.confidence, 0) / suggestions.length) * 100)
       : 0;
 
@@ -262,7 +300,7 @@ export default function MeetingConsole() {
 
       <div className="meta-strip" style={{ marginTop: 0, marginBottom: 18 }}>
         <div className="metric">
-          <div className="v">{suggestions.length}</div>
+          <div className="v">{answersSurfaced}</div>
           <div className="l">Answers surfaced</div>
         </div>
         <div className="metric">
@@ -270,7 +308,7 @@ export default function MeetingConsole() {
           <div className="l">Avg confidence</div>
         </div>
         <div className="metric">
-          <div className="v">{segments.length}</div>
+          <div className="v">{transcriptTurns}</div>
           <div className="l">Transcript turns</div>
         </div>
       </div>
@@ -294,7 +332,9 @@ export default function MeetingConsole() {
           {openTx && (
           <div className="panel-body transcript-body" ref={transcriptRef}>
             {segments.length === 0 && (
-              <div className="empty">Waiting for the meeting to start…</div>
+              <div className="empty">
+                {txLoading ? "Loading transcript…" : isEnded ? "No transcript captured." : "Waiting for the meeting to start…"}
+              </div>
             )}
             {segments.map((seg) => {
               const isTagged = tagged.some((t) => t.id === seg.id);
@@ -324,6 +364,13 @@ export default function MeetingConsole() {
                 </div>
               </div>
             )}
+            {txMore && (
+              <div style={{ textAlign: "center", padding: "10px 0" }}>
+                <button className="btn ghost sm" onClick={loadMoreTx} disabled={txLoading}>
+                  {txLoading ? "Loading…" : "Load more turns"}
+                </button>
+              </div>
+            )}
           </div>
           )}
         </div>
@@ -334,7 +381,7 @@ export default function MeetingConsole() {
             <span style={{ fontSize: 16 }}>💡</span>
             <h3>Copilot suggestions</h3>
             <span className="spacer" style={{ flex: 1 }} />
-            <span className="pill">{suggestions.length}</span>
+            <span className="pill">{answersSurfaced}</span>
             <span className="pill" aria-hidden="true">{openSug ? "▾" : "▸"}</span>
           </div>
           {openSug && (
@@ -355,6 +402,13 @@ export default function MeetingConsole() {
               suggestions.map((s) => (
                 <SuggestionCard key={s.id} s={s} onPropose={proposeAction} repName={meeting?.rep_name} feedbackEnabled={caps.answer_feedback !== false} />
               ))
+            )}
+            {sugMore && (
+              <div style={{ textAlign: "center", padding: "10px 0" }}>
+                <button className="btn ghost sm" onClick={loadMoreSug} disabled={sugLoading}>
+                  {sugLoading ? "Loading…" : "Load more"}
+                </button>
+              </div>
             )}
           </div>
           )}

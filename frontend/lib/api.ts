@@ -93,8 +93,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ scenario: scenario ?? null }),
     }),
-  transcript: (id: string) => request<Segment[]>(`/api/meetings/${id}/transcript`),
-  suggestions: (id: string) => request<Suggestion[]>(`/api/meetings/${id}/suggestions`),
+  transcript: (id: string, limit?: number, offset?: number) => {
+    const q = new URLSearchParams();
+    if (limit) q.set("limit", String(limit));
+    if (offset) q.set("offset", String(offset));
+    const s = q.toString();
+    return request<Segment[]>(`/api/meetings/${id}/transcript${s ? `?${s}` : ""}`);
+  },
+  suggestions: (id: string, limit?: number, offset?: number) => {
+    const q = new URLSearchParams();
+    if (limit) q.set("limit", String(limit));
+    if (offset) q.set("offset", String(offset));
+    const s = q.toString();
+    return request<Suggestion[]>(`/api/meetings/${id}/suggestions${s ? `?${s}` : ""}`);
+  },
+  meetingStats: (id: string) =>
+    request<{ answers_surfaced: number; avg_confidence_pct: number; transcript_turns: number }>(
+      `/api/meetings/${id}/stats`
+    ),
   end: (id: string) => request<Summary>(`/api/meetings/${id}/end`, { method: "POST" }),
   summary: (id: string) => request<Summary>(`/api/meetings/${id}/summary`),
   recording: (id: string) => request<{ status: string; url: string | null }>(`/api/meetings/${id}/recording`),
