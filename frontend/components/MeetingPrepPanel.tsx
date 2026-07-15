@@ -94,6 +94,8 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
   const [hint, setHint] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(true);
+  const settled = useRef(false); // got a brief/error — no need to hand off to the background watcher
+  const tries = useRef(0);
   const watcher = usePrepWatcher();
 
   // Generation runs in the background server-side; poll until it's ready.
@@ -104,11 +106,23 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
       if (!alive.current) return;
       if (r.generating) {
         setGenerating(true);
+        tries.current += 1;
+        if (tries.current > 30) {
+          // ~2 min at 4s — stop hammering the endpoint; hand off to the background watcher, which
+          // toasts when it's ready (or gives up after its own cap). The user can also retry.
+          settled.current = true;
+          watcher.watch(eventId);
+          setGenerating(false);
+          setError("This is taking longer than usual — we'll notify you when it's ready.");
+          return;
+        }
         timer.current = setTimeout(() => poll(false), 4000);
       } else if (r.error) {
+        settled.current = true;
         setGenerating(false);
         setError(r.error);
       } else {
+        settled.current = true;
         setGenerating(false);
         setPrep(r as MeetingPrep);
         watcher.clear(eventId); // panel showed it — no need for a global toast
@@ -122,9 +136,12 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
 
   const start = (refresh = false) => {
     if (timer.current) clearTimeout(timer.current);
+    settled.current = false;
+    tries.current = 0;
     setGenerating(true);
     if (refresh) setPrep(null);
-    watcher.watch(eventId); // keep watching app-wide so a toast fires even if we navigate away
+    // NOTE: while this panel is mounted it's the ONLY poller (no concurrent global watcher) — the
+    // watcher is handed off on unmount below if we leave before it's ready, so we never double-poll.
     poll(refresh);
   };
 
@@ -134,6 +151,8 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
     return () => {
       alive.current = false;
       if (timer.current) clearTimeout(timer.current);
+      // Left before the brief was ready → let the app-wide watcher finish it and toast.
+      if (!settled.current) watcher.watch(eventId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);

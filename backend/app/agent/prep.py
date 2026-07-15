@@ -387,7 +387,10 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
         + _context_block(ctx, persona)
     )
     payload = [{"type": "url", "url": s["url"], "name": s["name"], "authorization_token": s["token"]} for s in remote]
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    # Hard timeout so a slow/hung remote MCP server can't make prep hang for minutes (which left the
+    # brief stuck "generating…" and the client polling endlessly). On timeout we return None and fall
+    # back to the fast compose brief — prep always finishes in bounded time.
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=75.0)
     try:
         resp = await client.beta.messages.create(
             # 2500 comfortably fits a tight 6-section skimmable brief (~1800 words) without ever
@@ -397,7 +400,7 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
             mcp_servers=payload, betas=[_MCP_BETA],
         )
     except Exception as exc:
-        log.warning("prep mcp research failed: %s", exc)
+        log.warning("prep mcp research failed (or timed out); falling back to compose: %s", exc)
         return None
 
     parts, used = [], set()
