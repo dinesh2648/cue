@@ -490,3 +490,46 @@ async def generate_prep(
     except Exception as exc:  # LLM/network failure — fall back to deterministic
         log.warning("prep LLM compose errored, using offline brief: %s", exc)
     return _offline_brief(ctx, persona)
+
+
+async def generate_prep_quick(ctx: dict, persona: str) -> dict:
+    """Phase 1 — a FAST brief from the context we already gathered (no live tool research).
+
+    Compose from CRM/history/emails/docs already in `ctx`; deterministic offline brief if the LLM
+    is unavailable. Always returns something usable in seconds, so the user never stares at a spinner
+    while the slow live research runs.
+    """
+    try:
+        llm = await _llm_brief(ctx, persona)
+        if llm:
+            return llm
+    except Exception as exc:  # pragma: no cover
+        log.warning("prep quick compose errored, using offline brief: %s", exc)
+    return _offline_brief(ctx, persona)
+
+
+async def generate_prep_deep(
+    ctx: dict, *, persona: str, servers: list[dict] | None,
+    notion_token: str | None = None, drive_token: str | None = None, gmail_token: str | None = None,
+    slack_token: str | None = None,
+) -> dict | None:
+    """Phase 2 — the RICHER brief that researches the user's live connected tools + web.
+
+    Returns None when there's nothing to research or the research produced nothing — the caller then
+    keeps the fast phase-1 brief rather than downgrading it.
+    """
+    if servers or notion_token or drive_token or gmail_token or slack_token:
+        try:
+            agent = await _agent_brief(ctx, persona, servers or [], notion_token, drive_token, gmail_token, slack_token)
+            if agent:
+                return agent
+        except Exception as exc:  # SDK/subprocess/tool failure — try the MCP-connector path
+            log.warning("prep deep agent path errored: %s", exc)
+    if servers:
+        try:
+            mcp = await _mcp_brief(ctx, persona, servers)
+            if mcp:
+                return mcp
+        except Exception as exc:
+            log.warning("prep deep mcp path errored: %s", exc)
+    return None

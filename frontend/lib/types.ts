@@ -135,9 +135,12 @@ export interface MeetingPrep {
   generated_at: string | null;
   cached: boolean;
 }
-// The prep endpoint returns either a finished brief, or {generating:true} (poll again), or {error}.
+// The prep endpoint returns a finished brief, a fast PARTIAL brief that's still being refined
+// (markdown present + generating:true + partial:true → show it and keep polling), a bare
+// {generating:true} (nothing yet — poll again), or {error}.
 export interface MeetingPrepResponse extends Partial<MeetingPrep> {
   generating?: boolean;
+  partial?: boolean;
   error?: string;
 }
 

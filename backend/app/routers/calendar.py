@@ -101,7 +101,11 @@ async def upcoming(
 
 # Live research (Jira/GitHub/Notion + Gmail bodies + LLM) can take 60–90s — too long to hold an
 # HTTP request open (nginx 504). So generation runs in the background and the client polls.
+# Two-phase: a fast compose brief lands first (client shows it), then the richer researched brief
+# replaces it. `_prep_inflight` = phase 1 (nothing to show yet); `_prep_refining` = phase 2 (a
+# quick brief is cached and being upgraded).
 _prep_inflight: set[str] = set()
+_prep_refining: set[str] = set()
 _prep_error: dict[str, str] = {}
 _prep_tasks: set = set()  # hold task refs so they aren't garbage-collected mid-run
 
@@ -111,15 +115,25 @@ async def _generate_prep_bg(user_id: str, event: dict) -> None:
     db = SessionLocal()
     try:
         user = db.get(User, user_id)
-        if user:
-            await prep_ops.build_prep(db, user, event, force=True)
+        if not user:
+            return
+        # Phase 1 — fast compose brief so the client sees content within seconds.
+        _, bundle = await prep_ops.build_prep_quick(db, user, event)
         _prep_error.pop(key, None)
+        _prep_inflight.discard(key)   # quick brief is cached — the client can fetch it now…
+        _prep_refining.add(key)       # …while we research the richer version
+        # Phase 2 — deep research; upgrade the cached brief in place if it comes back richer.
+        try:
+            await prep_ops.build_prep_refine(db, user, event, bundle)
+        except Exception as exc:  # research failed — the fast brief already stands
+            log.warning("prep refine failed for %s: %s", key, exc)
     except Exception as exc:  # pragma: no cover - surfaced to the client on the next poll
         _prep_error[key] = str(exc)[:200]
         log.warning("background prep failed for %s: %s", key, exc)
     finally:
         db.close()
         _prep_inflight.discard(key)
+        _prep_refining.discard(key)
 
 
 @router.get("/prep/{event_id}")
@@ -135,17 +149,20 @@ async def get_prep(
     Gmail/Drive/Slack) + prior notes."""
     key = f"{user.id}:{event_id}"
 
-    if key in _prep_inflight:  # a build is already running — keep the client polling
-        return {"generating": True, "cached": False}
-
     if not refresh:
         cached = prep_ops.get_cached(db, user, event_id)
         if cached and prep_ops._usable(cached, user):  # fresh AND matches current persona
-            return {**_prep_out(cached), "cached": True, "generating": False}
+            # If the quick brief is cached but the richer version is still being researched, return
+            # it with generating=true so the client shows it now and keeps polling for the upgrade.
+            refining = key in _prep_refining
+            return {**_prep_out(cached), "cached": True, "generating": refining, "partial": refining}
         err = _prep_error.get(key)
         if err:  # last build failed — surface it and stop the poll (a manual refresh retries)
             _prep_error.pop(key, None)
             return {"generating": False, "cached": False, "error": err}
+
+    if key in _prep_inflight:  # phase 1 running, no brief yet — keep the client polling
+        return {"generating": True, "cached": False}
 
     event = await _find_event(db, user, event_id)  # fast calendar lookup; validates access
     _prep_error.pop(key, None)

@@ -106,14 +106,20 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
       if (!alive.current) return;
       if (r.generating) {
         setGenerating(true);
+        // Phase 1 delivers a fast partial brief while the richer version is still researched —
+        // show it immediately and keep polling for the upgrade.
+        const hasBrief = Boolean(r.markdown);
+        if (hasBrief) setPrep(r as MeetingPrep);
         tries.current += 1;
         if (tries.current > 30) {
-          // ~2 min at 4s — stop hammering the endpoint; hand off to the background watcher, which
-          // toasts when it's ready (or gives up after its own cap). The user can also retry.
+          // ~2 min at 4s — stop hammering the endpoint. If a (partial) brief is already showing,
+          // just stop; otherwise hand off to the background watcher, which toasts when it's ready.
           settled.current = true;
-          watcher.watch(eventId);
           setGenerating(false);
-          setError("This is taking longer than usual — we'll notify you when it's ready.");
+          if (!hasBrief) {
+            watcher.watch(eventId);
+            setError("This is taking longer than usual — we'll notify you when it's ready.");
+          }
           return;
         }
         timer.current = setTimeout(() => poll(false), 4000);
@@ -179,6 +185,11 @@ export default function MeetingPrepPanel({ eventId }: { eventId: string }) {
         <>
           <Markdown md={prep.markdown} />
           <div className="prep-foot">
+            {generating && (
+              <span className="prep-refining">
+                <span className="prep-spinner" aria-hidden="true" /> refining with your live sources…
+              </span>
+            )}
             {prep.sources.length > 0 && (
               <span className="prep-sources">
                 {prep.sources.map((s, i) => (

@@ -438,6 +438,8 @@ code { background: var(--bg-2); border: 1px solid var(--border); border-radius: 
 .prep-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
 .prep-sources { display: flex; flex-wrap: wrap; gap: 6px; }
 .prep-meta { color: var(--faint); font-size: 11.5px; }
+.prep-refining { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
+.prep-refining .prep-spinner { width: 11px; height: 11px; border-width: 2px; }
 .prep-refresh { background: none; border: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 11.5px; padding: 0; }
 .prep-refresh:hover { color: var(--accent); }
 .prep-refresh:disabled { opacity: 0.5; cursor: default; }

@@ -121,13 +121,10 @@ def _usable(row: MeetingPrep | None, user: User) -> bool:
     return _fresh(row) and (getattr(row, "persona", "") or "") == _persona_key(user)
 
 
-async def build_prep(db: Session, user: User, event: dict, *, force: bool = False) -> MeetingPrep:
-    """Return a cached fresh prep, or research + generate + cache a new one."""
-    event_id = event["id"]
-    cached = get_cached(db, user, event_id)
-    if cached and _usable(cached, user) and not force:
-        return cached
-
+async def _gather_prep_bundle(db: Session, user: User, event: dict) -> dict:
+    """Gather everything the prep agent needs — the expensive part (CRM, prior meetings, and the
+    live Gmail/Drive/Slack pre-fetch). Shared by the one-shot and progressive build paths so it
+    only runs once. Returns the rendered context plus the user's connected tools/tokens."""
     rep_dom = _domain(user.email or "")
     external = [
         a for a in (event.get("attendees") or [])
@@ -194,28 +191,31 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         # Always-on advisory context: who this brief is for (role, focus, style) + company profile.
         "profile_context": advisory_preamble(user, db.get(Organization, user.org_id) if user.org_id else None),
     }
-    result = await prep.generate_prep(
-        ctx, persona=_persona(user), servers=servers,
-        notion_token=notion_token, drive_token=drive_token, gmail_token=gmail_token,
-        slack_token=slack_token,
-    )
+    return {
+        "ctx": ctx, "persona": persona, "servers": servers, "customer": customer,
+        "notion_token": notion_token, "drive_token": drive_token,
+        "gmail_token": gmail_token, "slack_token": slack_token,
+    }
+
+
+def _persist_prep(db: Session, user: User, event: dict, result: dict, customer: str) -> MeetingPrep:
+    """Replace any prior prep for this (user, event) with a fresh row and return it."""
+    result = dict(result or {})
     # The brief is always built from the calendar event itself (attendees, title, time) — credit it.
     result["sources"] = [
         {"label": "Google Calendar (your account)", "type": "connector", "detail": "this meeting", "url": ""},
         *(result.get("sources") or []),
     ]
-
-    # Replace any prior prep for this (user, event) so the cache holds one row.
     for old in db.scalars(
         select(MeetingPrep).where(
-            MeetingPrep.owner_user_id == user.id, MeetingPrep.calendar_event_id == event_id
+            MeetingPrep.owner_user_id == user.id, MeetingPrep.calendar_event_id == event["id"]
         )
     ):
         db.delete(old)
     row = MeetingPrep(
         owner_user_id=user.id,
         org_id=user.org_id,
-        calendar_event_id=event_id,
+        calendar_event_id=event["id"],
         event_title=(event.get("title") or "")[:255],
         event_start=(event.get("start") or "")[:64],
         customer=customer[:255],
@@ -228,3 +228,40 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
     db.commit()
     db.refresh(row)
     return row
+
+
+async def build_prep(db: Session, user: User, event: dict, *, force: bool = False) -> MeetingPrep:
+    """One-shot: return a cached fresh prep, or gather → research (best available) → cache a new one.
+    Used by autopilot pre-generation (nobody's waiting, so the full researched brief is built up front)."""
+    cached = get_cached(db, user, event["id"])
+    if cached and _usable(cached, user) and not force:
+        return cached
+    bundle = await _gather_prep_bundle(db, user, event)
+    result = await prep.generate_prep(
+        bundle["ctx"], persona=bundle["persona"], servers=bundle["servers"],
+        notion_token=bundle["notion_token"], drive_token=bundle["drive_token"],
+        gmail_token=bundle["gmail_token"], slack_token=bundle["slack_token"],
+    )
+    return _persist_prep(db, user, event, result, bundle["customer"])
+
+
+async def build_prep_quick(db: Session, user: User, event: dict) -> tuple[MeetingPrep, dict]:
+    """Phase 1 (interactive open): gather + a FAST compose brief, cached immediately so the user
+    sees content in seconds. Returns (row, bundle) so phase 2 reuses the same gathered context."""
+    bundle = await _gather_prep_bundle(db, user, event)
+    quick = await prep.generate_prep_quick(bundle["ctx"], bundle["persona"])
+    row = _persist_prep(db, user, event, quick, bundle["customer"])
+    return row, bundle
+
+
+async def build_prep_refine(db: Session, user: User, event: dict, bundle: dict) -> MeetingPrep | None:
+    """Phase 2 (interactive open): research the live tools and overwrite the cached brief if it's
+    richer. Returns None when research produced nothing — the fast phase-1 brief then stands."""
+    deep = await prep.generate_prep_deep(
+        bundle["ctx"], persona=bundle["persona"], servers=bundle["servers"],
+        notion_token=bundle["notion_token"], drive_token=bundle["drive_token"],
+        gmail_token=bundle["gmail_token"], slack_token=bundle["slack_token"],
+    )
+    if not deep:
+        return None
+    return _persist_prep(db, user, event, deep, bundle["customer"])
