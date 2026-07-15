@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Per-user OAuth token encryption (Fernet). Auto-generated for dev if unset.
     token_encryption_key: str | None = None
 
+    # Pilot mode: during the pilot every workspace runs on the Enterprise plan (unlimited
+    # meetings/connectors, all features). New signups default to it and existing workspaces
+    # are upgraded on startup. Set PILOT_MODE=false to return to normal free/paid tiers.
+    pilot_mode: bool = True
+
     # Billing (Stripe). Free plan works with no keys; paid tiers activate when set.
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
@@ -113,6 +118,11 @@ class Settings(BaseSettings):
     def billing_enabled(self) -> bool:
         """Real Stripe billing on. Off → dev free-plan mode (upgrades applied directly)."""
         return bool(self.stripe_secret_key)
+
+    @property
+    def default_org_plan(self) -> str:
+        """Plan a brand-new workspace starts on. Enterprise during the pilot, else free."""
+        return "enterprise" if self.pilot_mode else "free"
 
     @property
     def resolved_agent_engine(self) -> str:

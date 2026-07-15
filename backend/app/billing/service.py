@@ -71,6 +71,23 @@ def within_connector_limit(db: Session, user_id: str, org: Organization) -> bool
     return limit is None or connectors_used(db, user_id) < limit
 
 
+def backfill_pilot_plan(db: Session) -> int:
+    """Pilot mode: put every existing workspace on the Enterprise plan.
+
+    Runs at startup so users who registered before the pilot flag are upgraded too. Idempotent —
+    only touches workspaces not already on Enterprise. A no-op when PILOT_MODE is off.
+    """
+    if not settings.pilot_mode:
+        return 0
+    orgs = db.scalars(select(Organization).where(Organization.plan != "enterprise")).all()
+    for org in orgs:
+        org.plan = "enterprise"
+    if orgs:
+        db.commit()
+        log.info("pilot mode: upgraded %d existing workspace(s) to enterprise", len(orgs))
+    return len(orgs)
+
+
 def set_plan(db: Session, org: Organization, plan_key: str, **stripe_ids) -> Organization:
     org.plan = plan_key if plan_key in plans.PLANS else "free"
     if stripe_ids.get("stripe_customer_id"):

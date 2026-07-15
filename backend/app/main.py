@@ -52,6 +52,9 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         counts = seed_if_empty(db)
+        # Pilot mode: ensure every existing workspace is on the Enterprise plan.
+        from .billing.service import backfill_pilot_plan
+        backfill_pilot_plan(db)
         docs = db.scalars(select(KnowledgeDoc)).all()
         doc_dicts = [
             {"id": d.id, "title": d.title, "doc_type": d.doc_type, "url": d.url, "content": d.content}

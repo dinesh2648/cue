@@ -85,8 +85,13 @@ def _org_for_email(email: str) -> tuple[str, str]:
 def _ensure_org(db: Session, org_id: str, name: str) -> Organization:
     org = db.get(Organization, org_id)
     if org is None:
-        org = Organization(id=org_id, name=name)
+        # During the pilot, every new workspace starts on Enterprise (settings.default_org_plan).
+        org = Organization(id=org_id, name=name, plan=settings.default_org_plan)
         db.add(org)
+        db.commit()
+    elif settings.pilot_mode and org.plan != "enterprise":
+        # Pilot mode: keep existing workspaces on Enterprise (covers users who registered earlier).
+        org.plan = "enterprise"
         db.commit()
     return org
 
