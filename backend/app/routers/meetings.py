@@ -213,16 +213,19 @@ def list_meetings(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Filtered + paginated meetings the caller can see (RBAC). Filters: search `q`, `status`,
-    and a `days` date-range window. Returns {items, total} so the UI can paginate."""
-    from ..security.auth import visible_user_ids
+    """Filtered + paginated meetings the caller can see. Filters: search `q`, `status`,
+    and a `days` date-range window. Returns {items, total} so the UI can paginate.
 
+    This is the PERSONAL dashboard list: it shows only meetings you OWN or are a listed
+    attendee of — for every role, including owner/admin. Org/team-wide visibility (managers
+    and owners seeing their reports) lives in the Team view (account.py /team/*), NOT here,
+    so your dashboard "Live now"/"Recent" never shows a colleague's meeting you're not in.
+    """
     # Build the whole query in SQL (indexed) so we never load a workspace's meetings into memory.
-    vis = list(visible_user_ids(db, user))
     base = Meeting.org_id == user.org_id if user.org_id else Meeting.owner_user_id == user.id
-    # RBAC: owner is visible (own / reports' / all-for-admin) OR you're a listed attendee.
-    # attendees is a JSON array of emails; match the serialized element portably (Postgres + SQLite).
-    rbac = Meeting.owner_user_id.in_(vis)
+    # Only your own meetings, or ones where you're a listed attendee (JSON array of emails —
+    # match the serialized element portably across Postgres + SQLite).
+    rbac = Meeting.owner_user_id == user.id
     if user.email:
         rbac = or_(rbac, cast(Meeting.attendees, String).ilike(f'%"{user.email}"%'))
     conds = [base, rbac]
