@@ -65,6 +65,42 @@ async def delete_event(token: str, event_id: str) -> None:
             resp.raise_for_status()
 
 
+def _normalize(ev: dict) -> dict:
+    """Normalize one raw Google event into our compact shape."""
+    start, end = ev.get("start", {}) or {}, ev.get("end", {}) or {}
+    return {
+        "id": ev.get("id"),
+        "title": ev.get("summary") or "(no title)",
+        "start": start.get("dateTime") or start.get("date") or "",
+        "end": end.get("dateTime") or end.get("date") or "",
+        "all_day": "date" in start and "dateTime" not in start,
+        "attendees": [a.get("email", "") for a in (ev.get("attendees") or []) if a.get("email")],
+        "organizer": (ev.get("organizer") or {}).get("email", ""),
+        "meeting_url": _meeting_url(ev),
+        "html_link": ev.get("htmlLink", ""),
+    }
+
+
+async def get_event(token: str, event_id: str) -> dict | None:
+    """Fetch ONE event directly by id from the user's primary calendar (their token).
+
+    Authoritative lookup with no time-window limit — the right way to resolve a known event id
+    (list scans miss anything past the page/window). Returns None if it's not there (404/410)
+    or cancelled; raises httpx.HTTPStatusError on other API errors.
+    """
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(
+            f"{_EVENTS_URL}/{event_id}", headers={"Authorization": f"Bearer {token}"}
+        )
+    if resp.status_code in (404, 410):
+        return None
+    resp.raise_for_status()
+    ev = resp.json()
+    if ev.get("status") == "cancelled":
+        return None
+    return _normalize(ev)
+
+
 async def list_upcoming(token: str, max_results: int = 8, days: int = 30) -> list[dict]:
     """Upcoming events on the user's primary calendar, soonest first.
 
@@ -83,22 +119,4 @@ async def list_upcoming(token: str, max_results: int = 8, days: int = 30) -> lis
         resp.raise_for_status()
         data = resp.json()
 
-    events: list[dict] = []
-    for ev in data.get("items", []):
-        if ev.get("status") == "cancelled":
-            continue
-        start, end = ev.get("start", {}) or {}, ev.get("end", {}) or {}
-        events.append(
-            {
-                "id": ev.get("id"),
-                "title": ev.get("summary") or "(no title)",
-                "start": start.get("dateTime") or start.get("date") or "",
-                "end": end.get("dateTime") or end.get("date") or "",
-                "all_day": "date" in start and "dateTime" not in start,
-                "attendees": [a.get("email", "") for a in (ev.get("attendees") or []) if a.get("email")],
-                "organizer": (ev.get("organizer") or {}).get("email", ""),
-                "meeting_url": _meeting_url(ev),
-                "html_link": ev.get("htmlLink", ""),
-            }
-        )
-    return events
+    return [_normalize(ev) for ev in data.get("items", []) if ev.get("status") != "cancelled"]

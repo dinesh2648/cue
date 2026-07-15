@@ -25,19 +25,24 @@ router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
 
 async def _find_event(db: Session, user: User, event_id: str) -> dict:
-    """Locate one of the user's own upcoming events by id (their calendar, their token)."""
+    """Locate one of the user's own events by id (their calendar, their token).
+
+    Fetches the event DIRECTLY by id (authoritative, no time-window limit) — a list scan misses
+    anything past the page/window, which is what made prep 404 for meetings further out. Falls
+    back to scanning the upcoming list only if the direct lookup can't resolve it.
+    """
     token = await manager.get_access_token(db, user.id, "google_calendar")
     if not token or token.startswith("demo-"):
         raise HTTPException(400, "Connect Google Calendar with your real Google account first")
     try:
-        # Wide window so prep works for any upcoming meeting, not just the next handful — the
-        # default (8 events / 30 days) made manual prep 404 intermittently for events further out.
-        events = await google_calendar.list_upcoming(token, max_results=100, days=90)
+        event = await google_calendar.get_event(token, event_id)
+        if event is None:  # not resolvable by id → fall back to a wide upcoming scan
+            events = await google_calendar.list_upcoming(token, max_results=250, days=120)
+            event = next((e for e in events if e.get("id") == event_id), None)
     except Exception as exc:  # pragma: no cover - network/parse
         raise HTTPException(502, f"Could not read your calendar: {str(exc)[:120]}")
-    event = next((e for e in events if e.get("id") == event_id), None)
     if event is None:
-        raise HTTPException(404, "That meeting isn't on your upcoming calendar (next 90 days) — reload the calendar and try again")
+        raise HTTPException(404, "That meeting isn't on your Google Calendar — reload the calendar and try again")
     return event
 
 
