@@ -65,6 +65,9 @@ class CustomMcpRequest(BaseModel):
     transport: str = "http"  # "http" | "sse"
     category: str = "Custom"
     icon: str = "🧩"
+    # Optional OAuth client credentials — only for MCP servers that authenticate via OAuth.
+    client_id: str = ""
+    client_secret: str = ""
 
 
 @router.post("/custom")
@@ -85,6 +88,7 @@ def add_custom_mcp(
         conn = manager.add_custom_mcp(
             db, user.id, name=body.name, mcp_url=body.mcp_url, token=body.token,
             transport=body.transport, category=body.category, icon=body.icon,
+            client_id=body.client_id, client_secret=body.client_secret,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

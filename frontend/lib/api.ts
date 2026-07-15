@@ -169,7 +169,7 @@ export const api = {
   disconnect: (provider: string) => request<{ ok: boolean }>(`/api/connectors/${provider}/disconnect`, { method: "POST" }),
   checkConnector: (provider: string) =>
     request<ConnectorCheck>(`/api/connectors/${provider}/check`, { method: "POST" }),
-  addCustomMcp: (body: { name: string; mcp_url: string; token?: string; transport?: string; category?: string; icon?: string }) =>
+  addCustomMcp: (body: { name: string; mcp_url: string; token?: string; transport?: string; category?: string; icon?: string; client_id?: string; client_secret?: string }) =>
     request<{ ok: boolean; provider: string; status: string; has_mcp: boolean }>(`/api/connectors/custom`, {
       method: "POST",
       body: JSON.stringify(body),

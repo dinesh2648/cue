@@ -325,6 +325,8 @@ def add_custom_mcp(
     transport: str = "http",
     category: str = "Custom",
     icon: str = "🧩",
+    client_id: str = "",
+    client_secret: str = "",
 ) -> ConnectorConnection:
     """Point Cue at ANY remote MCP server — not just the built-in catalog.
 
@@ -360,6 +362,14 @@ def add_custom_mcp(
     conn.refresh_token_enc = None
     conn.expires_at = None
     conn.scopes = []
+    # Optional OAuth client credentials for MCP servers that authenticate via OAuth. Stored in
+    # oauth_meta (same shape as the DCR path) so the existing token/refresh machinery can use them.
+    meta: dict = {}
+    if (client_id or "").strip():
+        meta["client_id"] = client_id.strip()
+    if (client_secret or "").strip():
+        meta["client_secret"] = client_secret.strip()
+    conn.oauth_meta = meta
     conn.account_label = "Connected"
     conn.status = "connected"
     conn.error = None

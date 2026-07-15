@@ -18,7 +18,7 @@ export default function ConnectionsPage() {
   const [checking, setChecking] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [mcp, setMcp] = useState({ name: "", mcp_url: "", token: "", transport: "http", icon: "🧩" });
+  const [mcp, setMcp] = useState({ name: "", mcp_url: "", token: "", transport: "http", icon: "🧩", client_id: "", client_secret: "" });
 
   const load = useCallback(() => {
     api.connectors().then(setConnectors).catch(() => {});
@@ -98,9 +98,11 @@ export default function ConnectionsPage() {
         token: mcp.token.trim(),
         transport: mcp.transport,
         icon: mcp.icon.trim() || "🧩",
+        client_id: mcp.client_id.trim(),
+        client_secret: mcp.client_secret.trim(),
       });
       setAddOpen(false);
-      setMcp({ name: "", mcp_url: "", token: "", transport: "http", icon: "🧩" });
+      setMcp({ name: "", mcp_url: "", token: "", transport: "http", icon: "🧩", client_id: "", client_secret: "" });
       load();
       flash("✓ MCP server added");
     } catch {
@@ -193,6 +195,28 @@ export default function ConnectionsPage() {
               value={mcp.token}
               onChange={(e) => setMcp({ ...mcp, token: e.target.value })}
             />
+            <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 2 }}>
+              OAuth credentials (optional) — only for MCP servers that authenticate via OAuth.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                className="conn-input"
+                style={{ flex: 1 }}
+                placeholder="OAuth Client ID (optional)"
+                value={mcp.client_id}
+                onChange={(e) => setMcp({ ...mcp, client_id: e.target.value })}
+                aria-label="OAuth Client ID"
+              />
+              <input
+                className="conn-input"
+                style={{ flex: 1 }}
+                type="password"
+                placeholder="OAuth Client Secret (optional)"
+                value={mcp.client_secret}
+                onChange={(e) => setMcp({ ...mcp, client_secret: e.target.value })}
+                aria-label="OAuth Client Secret"
+              />
+            </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, color: "var(--muted)" }}>
                 Transport
