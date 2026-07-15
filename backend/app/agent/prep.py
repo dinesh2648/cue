@@ -390,7 +390,9 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     try:
         resp = await client.beta.messages.create(
-            model=settings.anthropic_model, max_tokens=4000, system=system,
+            # 2500 comfortably fits a tight 6-section skimmable brief (~1800 words) without ever
+            # truncating a section, while capping the occasional runaway (was 4000).
+            model=settings.anthropic_model, max_tokens=2500, system=system,
             messages=[{"role": "user", "content": user_msg}],
             mcp_servers=payload, betas=[_MCP_BETA],
         )

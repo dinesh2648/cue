@@ -29,7 +29,7 @@ log = logging.getLogger("copilot.autopilot")
 
 _TICK_SECONDS = 60
 _JOIN_WINDOW_MIN = 5  # dispatch the bot when a meeting starts within this many minutes
-_PREP_WINDOW_MIN = 60  # pre-generate prep ~30-60 min ahead: start once a meeting is within this window
+_PREP_WINDOW_MIN = 90  # pre-generate prep ahead of time: start once a meeting is within this window
 _PREP_REFRESH_MIN = 90  # regenerate if the cached brief is older than this, so it's fresh near start
 _ENDED_CODES = {"call_ended", "done", "fatal"}
 
@@ -197,7 +197,8 @@ async def _auto_prep(db) -> None:
         if not token or token.startswith("demo-"):
             continue
         try:
-            events = await google_calendar.list_upcoming(token, max_results=10, days=1)
+            # Wider scan (was 10/1d) so busy days + meetings a bit further out still get pre-prepped.
+            events = await google_calendar.list_upcoming(token, max_results=25, days=2)
         except Exception:  # pragma: no cover
             continue
         for ev in events:

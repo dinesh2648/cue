@@ -10,6 +10,7 @@ Single source of truth: prep_ops, the packs' deep_answer, and summary all call g
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -93,35 +94,55 @@ async def gather_comms(
     drive_token = tokens.get("google_drive")
     slack_token = tokens.get("slack")
 
-    comms: list[dict] = []
-    if gmail_token:
+    # DB-backed tokens are resolved up front (sequential — a SQLAlchemy Session isn't safe for
+    # concurrent use); the per-source READS below are pure network I/O and run concurrently.
+    notion_token = None
+    if notion:
+        # PAT connections are read in-process here; a DCR (OAuth) Notion flows via the remote MCP
+        # server instead — its token isn't a Notion API key, so skip it to avoid a guaranteed 401.
+        nconn = get_connection(db, user_id, "notion")
+        notion_is_dcr = bool(nconn and (nconn.oauth_meta or {}).get("token_endpoint"))
+        notion_token = None if (not nconn or notion_is_dcr) else await _provider_token(db, user_id, "notion")
+    cal_token = await _provider_token(db, user_id, "google_calendar") if calendar else None
+
+    async def _gmail_block() -> list[dict]:
+        if not gmail_token:
+            return []
         hits = await _safe(gmail_api.search(gmail_token, q, k=gmail_k))
+        out: list[dict] = []
         for i, m in enumerate(hits):
             item = {"source": "gmail", **m}
             if read_bodies and i < 3 and m.get("id"):  # read the actual email body, not just the snippet
                 body = await _safe(gmail_api.read_message(gmail_token, m["id"], max_chars=1200))
                 if isinstance(body, str) and body.strip():
                     item["body"] = body
-            comms.append(item)
-    if drive_token:
+            out.append(item)
+        return out
+
+    async def _drive_block() -> list[dict]:
+        if not drive_token:
+            return []
         files = await _safe(drive_api.search(drive_token, q, k=drive_k))
+        out: list[dict] = []
         for i, d in enumerate(files):
             item = {"source": "drive", **d}
             if read_bodies and i < 2 and d.get("id"):  # read the file's text (Docs/Sheets/Slides), not just its name
                 body = await _safe(drive_api.read_file(drive_token, d["id"], max_chars=1000))
                 if isinstance(body, str) and body.strip():
                     item["body"] = body
-            comms.append(item)
-    slack_hits = 0
-    if slack_token:
+            out.append(item)
+        return out
+
+    async def _slack_block() -> list[dict]:
+        if not slack_token:
+            return []
         # Slack search is keyword-based → reduce the question to salient terms, then fall back to the
         # raw query only if that yields nothing (short/proper-noun queries survive _keywords anyway).
         sq = _keywords(q)
         hits = await _safe(slack_api.search(slack_token, sq, k=slack_k))
         if not hits and sq != q:
             hits = await _safe(slack_api.search(slack_token, q, k=slack_k))
-        slack_hits = len(hits)
-        comms += [{"source": "slack", **sm} for sm in hits]
+        out: list[dict] = [{"source": "slack", **sm} for sm in hits]
         if read_bodies:  # deepen: pull the top matched channel's recent thread, not just isolated hits
             top_ch = next((h.get("channel_id") for h in hits if h.get("channel_id")), None)
             if top_ch:
@@ -129,44 +150,50 @@ async def gather_comms(
                 texts = [m.get("text", "") for m in hist if m.get("text")][:12]
                 if texts:
                     ch_name = next((h.get("channel") for h in hits if h.get("channel_id") == top_ch), "")
-                    comms.append({"source": "slack", "channel": ch_name, "recent_messages": texts})
+                    out.append({"source": "slack", "channel": ch_name, "recent_messages": texts})
+        return out
 
-    notion_hits = 0
-    if notion:
-        # PAT connections are read in-process here; a DCR (OAuth) Notion flows via the remote MCP
-        # server instead — its token isn't a Notion API key, so skip it to avoid a guaranteed 401.
-        nconn = get_connection(db, user_id, "notion")
-        notion_is_dcr = bool(nconn and (nconn.oauth_meta or {}).get("token_endpoint"))
-        notion_token = None if (not nconn or notion_is_dcr) else await _provider_token(db, user_id, "notion")
-        if notion_token:
-            pages = await _safe(notion_api.search(notion_token, q, k=4))
-            notion_hits = len(pages)
-            for i, p in enumerate(pages):
-                item = {"source": "notion", "title": p.get("title", ""), "url": p.get("url", ""), "id": p.get("id")}
-                if read_bodies and i < 2 and p.get("id"):
-                    body = await _safe(notion_api.page_text(notion_token, p["id"]))
-                    if isinstance(body, str) and body.strip():
-                        item["body"] = body
-                comms.append(item)
+    async def _notion_block() -> list[dict]:
+        if not notion_token:
+            return []
+        pages = await _safe(notion_api.search(notion_token, q, k=4))
+        out: list[dict] = []
+        for i, p in enumerate(pages):
+            item = {"source": "notion", "title": p.get("title", ""), "url": p.get("url", ""), "id": p.get("id")}
+            if read_bodies and i < 2 and p.get("id"):
+                body = await _safe(notion_api.page_text(notion_token, p["id"]))
+                if isinstance(body, str) and body.strip():
+                    item["body"] = body
+            out.append(item)
+        return out
 
-    cal_count = 0
-    if calendar:
-        cal_token = await _provider_token(db, user_id, "google_calendar")
-        if cal_token:
-            events = await _safe(calendar_api.list_upcoming(cal_token, max_results=10, days=30))
-            kws = {w for w in _keywords(q).split() if len(w) > 2}
-            cal_ish = bool(kws & _CAL_WORDS) or any(w in q.lower() for w in ("next meeting", "my calendar"))
-            for ev in events:
-                hay = (ev.get("title", "") + " " + " ".join(ev.get("attendees") or [])).lower()
-                if cal_ish or (kws and any(k in hay for k in kws)):
-                    comms.append({
-                        "source": "calendar", "title": ev.get("title", ""), "start": ev.get("start", ""),
-                        "attendees": ev.get("attendees") or [], "url": ev.get("html_link", ""),
-                    })
-                    cal_count += 1
-                if cal_count >= 5:
-                    break
+    async def _calendar_block() -> list[dict]:
+        if not cal_token:
+            return []
+        events = await _safe(calendar_api.list_upcoming(cal_token, max_results=10, days=30))
+        kws = {w for w in _keywords(q).split() if len(w) > 2}
+        cal_ish = bool(kws & _CAL_WORDS) or any(w in q.lower() for w in ("next meeting", "my calendar"))
+        out: list[dict] = []
+        for ev in events:
+            hay = (ev.get("title", "") + " " + " ".join(ev.get("attendees") or [])).lower()
+            if cal_ish or (kws and any(k in hay for k in kws)):
+                out.append({
+                    "source": "calendar", "title": ev.get("title", ""), "start": ev.get("start", ""),
+                    "attendees": ev.get("attendees") or [], "url": ev.get("html_link", ""),
+                })
+            if len(out) >= 5:
+                break
+        return out
 
+    # All source reads run concurrently — wall-clock ≈ the slowest source, not the sum of all.
+    blocks = await asyncio.gather(
+        _gmail_block(), _drive_block(), _slack_block(), _notion_block(), _calendar_block()
+    )
+    comms: list[dict] = [item for block in blocks for item in block]
+
+    slack_hits = sum(1 for c in comms if c.get("source") == "slack" and not c.get("recent_messages"))
+    notion_hits = sum(1 for c in comms if c.get("source") == "notion")
+    cal_count = sum(1 for c in comms if c.get("source") == "calendar")
     log.info(
         "gather_comms: q=%r tokens(gmail=%s drive=%s slack=%s) items=%d slack_hits=%d notion_hits=%d cal=%d",
         q[:80], bool(gmail_token), bool(drive_token), bool(slack_token),
