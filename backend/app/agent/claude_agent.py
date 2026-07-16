@@ -88,6 +88,8 @@ async def run_turn(
     context: str = "",
     comms: list[dict] | None = None,
     profile_context: str = "",
+    meeting_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict | None:
     """Answer one question using the user's live MCP tools. None on fallback.
 
@@ -161,6 +163,18 @@ async def run_turn(
         return None
 
     result = _parse(resp, mcp_servers)
+
+    # Cost telemetry: deep answers are the priciest calls (agentic MCP tool loop). Record the
+    # real token usage + how many tools the model called. Best-effort; never breaks the answer.
+    try:
+        from ..observability.usage import record_usage
+        tool_calls = sum(1 for b in getattr(resp, "content", []) if getattr(b, "type", "") == "mcp_tool_use")
+        record_usage(
+            call_type="deep_answer", model=settings.anthropic_model, usage=getattr(resp, "usage", None),
+            meeting_id=meeting_id, user_id=user_id, tool_calls=tool_calls,
+        )
+    except Exception:  # pragma: no cover
+        pass
 
     # Credit the in-process sources we handed the model — _parse only sees MCP tool calls, so
     # Gmail/Drive/Slack (injected via the prompt) would otherwise never show up in the answer.

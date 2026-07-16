@@ -241,6 +241,7 @@ async def build_prep(db: Session, user: User, event: dict, *, force: bool = Fals
         bundle["ctx"], persona=bundle["persona"], servers=bundle["servers"],
         notion_token=bundle["notion_token"], drive_token=bundle["drive_token"],
         gmail_token=bundle["gmail_token"], slack_token=bundle["slack_token"],
+        user_id=user.id,
     )
     return _persist_prep(db, user, event, result, bundle["customer"])
 
@@ -261,6 +262,7 @@ async def build_prep_refine(db: Session, user: User, event: dict, bundle: dict) 
         bundle["ctx"], persona=bundle["persona"], servers=bundle["servers"],
         notion_token=bundle["notion_token"], drive_token=bundle["drive_token"],
         gmail_token=bundle["gmail_token"], slack_token=bundle["slack_token"],
+        user_id=user.id,
     )
     if not deep:
         return None

@@ -129,6 +129,8 @@ async def generate_scorecard(meeting: dict, segments: list[dict], transcript: st
     raw = await llm_complete(
         system=_SYSTEM_TECH if persona == "tech" else _SYSTEM, user=_context(meeting, transcript, m),
         max_tokens=1700, temperature=0.3, timeout=60.0,
+        call_type="scorecard",
+        meeting_id=meeting.get("id") if isinstance(meeting, dict) else None,
     )
     if not raw:
         return None

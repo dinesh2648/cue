@@ -18,12 +18,14 @@ from .retrieval import Retrieval
 log = logging.getLogger("copilot.advisory")
 
 
-async def respond(query: str, intent_type: str, persona: str, r: Retrieval, context: str) -> dict | None:
+async def respond(query: str, intent_type: str, persona: str, r: Retrieval, context: str,
+                  meeting_id: str | None = None, user_id: str | None = None) -> dict | None:
     """Grounded answer over the role-scoped tools + injected context. None to fall back."""
     full_ctx = f"{r.meeting_state}\n\n{context}".strip() if r.meeting_state else context
     return await claude_agent.run_turn(
         query, intent_type, r.servers, persona=persona, context=full_ctx,
         comms=r.comms, profile_context=r.preamble,
+        meeting_id=meeting_id, user_id=user_id,
     )
 
 
@@ -48,6 +50,7 @@ async def envelope(query: str, answer: str, evidence: list[str]) -> dict:
         max_tokens=350,
         temperature=0.2,
         timeout=15.0,
+        call_type="advisory_envelope",
     )
     if not raw:
         return {"assumptions": [], "risks": [], "next_actions": []}

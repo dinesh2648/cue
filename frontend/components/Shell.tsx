@@ -7,12 +7,13 @@ type Me = { id: string; email: string; name: string; org_id: string | null; role
 
 // AstroLabs app shell — navy left sidebar + white top header. Pure chrome: it wraps every
 // authenticated page and changes no behavior (same routes, same sign-out).
-const NAV: { href: string; label: string; icon: string }[] = [
+const NAV: { href: string; label: string; icon: string; roles?: string[] }[] = [
   { href: "/", label: "Dashboard", icon: "◱" },
   { href: "/ask", label: "Ask Cue", icon: "✦" },
   { href: "/connections", label: "Connections", icon: "⚡" },
   { href: "/activity", label: "Activity", icon: "◷" },
   { href: "/team", label: "Team", icon: "◎" },
+  { href: "/costs", label: "Costs", icon: "＄", roles: ["owner", "admin"] },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -21,6 +22,7 @@ const TITLES: [string, string][] = [
   ["/connections", "Connections"],
   ["/activity", "Activity"],
   ["/team", "Team"],
+  ["/costs", "Costs"],
   ["/settings", "Settings"],
   ["/meeting", "Live meeting"],
   ["/share", "Shared meeting"],
@@ -56,7 +58,7 @@ export default function Shell({
           </span>
         </Link>
         <nav className="cue-nav">
-          {NAV.map((n) => (
+          {NAV.filter((n) => !n.roles || (user?.role ? n.roles.includes(user.role) : false)).map((n) => (
             <Link key={n.href} href={n.href} className={`cue-nav-item ${active(n.href) ? "active" : ""}`}>
               <span className="cue-nav-icon" aria-hidden="true">{n.icon}</span>
               <span>{n.label}</span>

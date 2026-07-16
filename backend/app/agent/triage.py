@@ -67,7 +67,8 @@ def _tool(labels: dict[str, str]) -> dict:
     }
 
 
-async def classify(text: str, recent: list[str] | None, labels: dict[str, str]) -> IntentResult | None:
+async def classify(text: str, recent: list[str] | None, labels: dict[str, str],
+                   meeting_id: str | None = None) -> IntentResult | None:
     """Triage one utterance. Returns an IntentResult (actionable iff needs_answer) or None."""
     if not settings.anthropic_api_key:
         return None
@@ -102,6 +103,12 @@ async def classify(text: str, recent: list[str] | None, labels: dict[str, str]) 
             )
             resp.raise_for_status()
             data = resp.json()
+            try:
+                from ..observability.usage import record_usage
+                record_usage(call_type="triage", model=settings.triage_model,
+                             usage=data.get("usage"), meeting_id=meeting_id)
+            except Exception:  # pragma: no cover
+                pass
     except httpx.HTTPStatusError as exc:  # API rejected the request (e.g. bad model) → show why
         body = ""
         try:

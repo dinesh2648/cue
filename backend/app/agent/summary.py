@@ -239,6 +239,8 @@ async def generate_summary(
         max_tokens=1800,
         temperature=0.3,
         timeout=60.0,  # large structured generation — well above the default 20s
+        call_type="summary",
+        meeting_id=meeting.get("id") if isinstance(meeting, dict) else None,
     )
     if not raw:
         return base

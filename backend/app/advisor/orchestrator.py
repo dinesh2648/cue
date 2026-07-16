@@ -54,7 +54,10 @@ async def run(
     r = await retrieval_agent.gather(db, meeting, text, servers)
     if not r.has_sources:
         return None
-    res = await advisory.respond(text, intent.intent_type, persona, r, context)
+    res = await advisory.respond(
+        text, intent.intent_type, persona, r, context,
+        meeting_id=getattr(meeting, "id", None), user_id=uid,
+    )
     if res and with_envelope:
         res.update(await advisory.envelope(text, res.get("answer", ""), res.get("evidence", [])))
     return res

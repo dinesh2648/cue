@@ -74,6 +74,7 @@ async def _draft_doc(title: str, detail: str) -> str:
         system=_DOC_SYSTEM,
         user=f"Prepare this document: {title}\nContext from the meeting: {detail}",
         max_tokens=2200, temperature=0.4, timeout=60.0,
+        call_type="planner_doc",
     )
     return (body or "").strip()
 
@@ -86,7 +87,7 @@ async def plan_actions(*, transcript: str, summary_data: dict, persona: str = "s
         f"Concerns: {summary_data.get('customer_concerns')}\n\n"
         f"TRANSCRIPT:\n{transcript[:9000]}"
     )
-    raw = await llm_complete(system=_PLAN_SYSTEM, user=context, max_tokens=900, temperature=0.3, timeout=45.0)
+    raw = await llm_complete(system=_PLAN_SYSTEM, user=context, max_tokens=900, temperature=0.3, timeout=45.0, call_type="planner")
     if not raw:
         return []
     try:

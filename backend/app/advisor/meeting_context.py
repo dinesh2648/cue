@@ -105,6 +105,8 @@ async def refresh(meeting_id: str) -> None:
             max_tokens=900,
             temperature=0.2,
             timeout=30.0,
+            call_type="meeting_context",
+            meeting_id=meeting_id,
         )
         if not raw:
             return

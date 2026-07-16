@@ -137,7 +137,7 @@ async def _run_agent_turn(meeting_id: str, seg_id: str, text: str) -> None:
         recent = [f"{s.role}: {s.text}" for s in rows if s.id != seg_id][:6][::-1]
 
         # ── Layer 1: triage ONCE (FR-003) — user-agnostic; shared across participants. ──
-        intent_res = await pack.classify(text, recent)
+        intent_res = await pack.classify(text, recent, meeting_id=meeting_id)
         query = intent_res.query_text or text  # standalone query (pronouns resolved)
         await manager.broadcast(
             meeting_id,

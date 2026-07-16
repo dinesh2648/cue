@@ -39,6 +39,7 @@ def init_db() -> None:
     """Create tables for local SQLite dev. Production (Postgres) uses Alembic migrations
     (`alembic upgrade head`) — see backend/alembic/."""
     from . import models  # noqa: F401
+    from .observability import usage as _usage  # noqa: F401  (registers the llm_usage table)
 
     if settings.database_url.startswith("sqlite"):
         Base.metadata.create_all(bind=engine)

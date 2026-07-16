@@ -178,6 +178,7 @@ async def answer_node(state: dict) -> dict:
                 f"Facts:\n- " + "\n- ".join(evidence) + f"\n\nDraft answer: {answer}"
             ),
             max_tokens=220,
+            call_type="answer_polish",
         )
         if polished:
             answer = polished

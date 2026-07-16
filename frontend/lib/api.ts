@@ -1,4 +1,4 @@
-import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, AskStage, AskThreadSummary, AskThreadDetail, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle } from "./types";
+import type { Meeting, Segment, Suggestion, Summary, Metrics, Connector, ConnectorCheck, MeetingHealth, ProposedAction, ActionHistoryItem, BillingInfo, OrgInfo, UpcomingMeetings, MeetingPrep, MeetingPrepResponse, MeetingPrepRecord, Scorecard, TeamCoaching, TeamMembers, AskResult, AskStage, AskThreadSummary, AskThreadDetail, MeInfo, UserProfile, CompanyProfile, OrgProfile, Insight, ShareLink, ShareBundle, CostReport } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -55,6 +55,7 @@ export const api = {
       "/api/auth/config"
     ),
   me: () => request<MeInfo>("/api/me"),
+  costs: (days = 30) => request<CostReport>(`/api/costs?days=${days}`),
   setAutopilot: (enabled: boolean) =>
     request<{ autopilot: boolean }>("/api/me/autopilot", { method: "POST", body: JSON.stringify({ enabled }) }),
   setCapabilities: (capabilities: Record<string, boolean>) =>

@@ -33,11 +33,12 @@ class CopilotPack:
         """intent_type → human description, used to prompt the LLM triage layer."""
         return {"general": "any genuine question or request the rep should answer"}
 
-    async def classify(self, text: str, recent: list[str] | None = None) -> IntentResult:
+    async def classify(self, text: str, recent: list[str] | None = None,
+                       meeting_id: str | None = None) -> IntentResult:
         """Layer 1: LLM triage (Claude) decides if/what to answer; regex is the fallback."""
         from ..agent import triage
 
-        res = await triage.classify(text, recent, self.intent_descriptions())
+        res = await triage.classify(text, recent, self.intent_descriptions(), meeting_id=meeting_id)
         return res if res is not None else self.detect(text)
 
     # ── Capability ────────────────────────────────────────────────────────────

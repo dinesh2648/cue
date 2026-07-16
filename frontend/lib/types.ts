@@ -466,3 +466,20 @@ export interface AskThreadDetail {
   title: string;
   messages: AskThreadMessage[];
 }
+
+export interface CostReport {
+  days: number;
+  totals: {
+    calls: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+  };
+  by_model: { model: string; cost_usd: number; calls: number }[];
+  by_call_type: { call_type: string; cost_usd: number; calls: number }[];
+  by_user: { user_id: string; name?: string; cost_usd: number; calls: number }[];
+  top_meetings: { meeting_id: string; title?: string; cost_usd: number; calls: number }[];
+  by_day: { date: string; cost_usd: number; calls: number }[];
+}

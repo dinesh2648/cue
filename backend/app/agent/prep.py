@@ -359,7 +359,7 @@ def _comm_sources(ctx: dict) -> list[dict]:
 _MCP_BETA = "mcp-client-2025-04-04"
 
 
-async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | None:
+async def _mcp_brief(ctx: dict, persona: str, servers: list[dict], user_id: str | None = None) -> dict | None:
     """Research the brief LIVE via Anthropic's native MCP connector over the user's remote MCP
     servers (GitHub, Jira, HubSpot, Notion-DCR). This is the path that WORKS in Docker, where the
     Claude Agent SDK (used by _agent_brief) isn't installed. Returns None to fall back to compose.
@@ -403,6 +403,14 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
         log.warning("prep mcp research failed (or timed out); falling back to compose: %s", exc)
         return None
 
+    try:  # cost telemetry (best-effort)
+        from ..observability.usage import record_usage
+        tool_calls = sum(1 for b in getattr(resp, "content", []) if getattr(b, "type", "") == "mcp_tool_use")
+        record_usage(call_type="prep_research", model=settings.anthropic_model,
+                     usage=getattr(resp, "usage", None), user_id=user_id, tool_calls=tool_calls)
+    except Exception:  # pragma: no cover
+        pass
+
     parts, used = [], set()
     for block in resp.content:
         bt = getattr(block, "type", "")
@@ -426,7 +434,7 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict]) -> dict | Non
 async def _llm_brief(ctx: dict, persona: str) -> dict | None:
     """No agent/connected tools — compose a brief STRICTLY from the internal context we have."""
     system = _system_compose(persona)  # no _TECH_EXTRA here — it's Jira tool mechanics, useless without tools
-    out = await llm_complete(system, _context_block(ctx, persona), max_tokens=1200, temperature=0.3, timeout=60)
+    out = await llm_complete(system, _context_block(ctx, persona), max_tokens=1200, temperature=0.3, timeout=60, call_type="prep_compose")
     if not out:
         return None
     label = "Prior meetings & internal context" if persona == "tech" else "Prior meetings & CRM"
@@ -461,7 +469,7 @@ def _offline_brief(ctx: dict, persona: str = "sales") -> dict:
 async def generate_prep(
     ctx: dict, *, persona: str, servers: list[dict] | None,
     notion_token: str | None = None, drive_token: str | None = None, gmail_token: str | None = None,
-    slack_token: str | None = None,
+    slack_token: str | None = None, user_id: str | None = None,
 ) -> dict:
     """Best brief we can produce: agent (live tools) → LLM compose → deterministic.
 
@@ -478,7 +486,7 @@ async def generate_prep(
     # Live research via Anthropic's MCP connector — the path that works in Docker (no agent-SDK).
     if servers:
         try:
-            mcp = await _mcp_brief(ctx, persona, servers)
+            mcp = await _mcp_brief(ctx, persona, servers, user_id=user_id)
             if mcp:
                 return mcp
         except Exception as exc:
@@ -511,7 +519,7 @@ async def generate_prep_quick(ctx: dict, persona: str) -> dict:
 async def generate_prep_deep(
     ctx: dict, *, persona: str, servers: list[dict] | None,
     notion_token: str | None = None, drive_token: str | None = None, gmail_token: str | None = None,
-    slack_token: str | None = None,
+    slack_token: str | None = None, user_id: str | None = None,
 ) -> dict | None:
     """Phase 2 — the RICHER brief that researches the user's live connected tools + web.
 
@@ -527,7 +535,7 @@ async def generate_prep_deep(
             log.warning("prep deep agent path errored: %s", exc)
     if servers:
         try:
-            mcp = await _mcp_brief(ctx, persona, servers)
+            mcp = await _mcp_brief(ctx, persona, servers, user_id=user_id)
             if mcp:
                 return mcp
         except Exception as exc:

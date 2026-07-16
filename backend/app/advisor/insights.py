@@ -69,6 +69,8 @@ async def detect(meeting_id: str) -> list[dict]:
             max_tokens=500,
             temperature=0.2,
             timeout=25.0,
+            call_type="insights",
+            meeting_id=meeting_id,
         )
         if not raw:
             return []

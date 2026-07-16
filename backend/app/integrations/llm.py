@@ -27,25 +27,41 @@ async def llm_complete(
     max_tokens: int = 800,
     temperature: float = 0.2,
     timeout: float | None = None,
+    call_type: str = "other",
+    meeting_id: str | None = None,
+    user_id: str | None = None,
+    org_id: str | None = None,
 ) -> str | None:
     """Return generated text, or None if no provider is configured / call fails.
 
-    `timeout` overrides the default read timeout — large generations (e.g. the
-    post-meeting summary) need more than the default 20s.
+    `timeout` overrides the default read timeout — large generations (e.g. the post-meeting
+    summary) need more than the default 20s. `call_type`/`meeting_id`/`user_id`/`org_id` attribute
+    the call's token usage + cost for the cost dashboard (best-effort; recording never raises).
     """
     provider = settings.llm_provider
     to = httpx.Timeout(timeout, connect=5.0) if timeout else _TIMEOUT
     try:
         if provider == "anthropic":
-            return await _anthropic(system, user, max_tokens, temperature, to)
-        if provider == "openai":
-            return await _openai(system, user, max_tokens, temperature, to)
+            text, usage = await _anthropic(system, user, max_tokens, temperature, to)
+            model = settings.anthropic_model
+        elif provider == "openai":
+            text, usage = await _openai(system, user, max_tokens, temperature, to)
+            model = settings.openai_model
+        else:
+            return None
+        try:
+            from ..observability.usage import record_usage
+            record_usage(call_type=call_type, model=model, usage=usage,
+                         meeting_id=meeting_id, user_id=user_id, org_id=org_id)
+        except Exception:  # pragma: no cover - telemetry must never break the caller
+            pass
+        return text
     except Exception as exc:  # pragma: no cover - network failure path
         log.warning("LLM call failed (%s); using offline fallback: %r", provider, exc)
     return None
 
 
-async def _anthropic(system: str, user: str, max_tokens: int, temperature: float, timeout=_TIMEOUT) -> str:
+async def _anthropic(system: str, user: str, max_tokens: int, temperature: float, timeout=_TIMEOUT) -> tuple[str, dict]:
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             "https://api.anthropic.com/v1/messages",
@@ -63,11 +79,13 @@ async def _anthropic(system: str, user: str, max_tokens: int, temperature: float
             },
         )
         resp.raise_for_status()
-        blocks = resp.json().get("content", [])
-        return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        data = resp.json()
+        blocks = data.get("content", [])
+        text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        return text, data.get("usage") or {}
 
 
-async def _openai(system: str, user: str, max_tokens: int, temperature: float, timeout=_TIMEOUT) -> str:
+async def _openai(system: str, user: str, max_tokens: int, temperature: float, timeout=_TIMEOUT) -> tuple[str, dict]:
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -83,7 +101,8 @@ async def _openai(system: str, user: str, max_tokens: int, temperature: float, t
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"].strip(), data.get("usage") or {}
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]] | None:

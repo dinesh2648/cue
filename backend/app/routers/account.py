@@ -418,3 +418,46 @@ def packs() -> list[dict]:
         for m in list_packs()
         if m.key in enabled
     ]
+
+
+@router.get("/costs")
+def costs(
+    days: int = 30,
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Owner/Admin: LLM token + cost accounting for the whole workspace (Phase 0 telemetry).
+
+    Totals plus breakdowns by model, call type, day, user, and top meetings — so an owner can see
+    exactly where Anthropic spend goes and prove the effect of cost optimizations later."""
+    if user.role not in ("owner", "admin"):
+        raise HTTPException(403, "Only an owner or admin can view workspace costs")
+    from ..observability.usage import org_cost_summary
+
+    summary = org_cost_summary(db, org.id, days=max(1, min(days, 365)))
+
+    # Enrich ids → friendly labels for the UI.
+    uids = [r["user_id"] for r in summary["by_user"] if r["user_id"] and r["user_id"] != "unknown"]
+    if uids:
+        names = {u.id: (u.name or u.email or u.id) for u in db.scalars(select(User).where(User.id.in_(uids)))}
+        for r in summary["by_user"]:
+            r["name"] = names.get(r["user_id"], r["user_id"] or "Unattributed")
+    else:
+        for r in summary["by_user"]:
+            r["name"] = r["user_id"] or "Unattributed"
+
+    mids = [r["meeting_id"] for r in summary["top_meetings"] if r["meeting_id"] and r["meeting_id"] != "unknown"]
+    if mids:
+        titles = {
+            m.id: (m.title or m.customer_company or "Untitled meeting")
+            for m in db.scalars(select(Meeting).where(Meeting.id.in_(mids)))
+        }
+        for r in summary["top_meetings"]:
+            r["title"] = titles.get(r["meeting_id"], "Meeting")
+    else:
+        for r in summary["top_meetings"]:
+            r["title"] = "Meeting"
+
+    summary["billing_enabled"] = None  # placeholder; costs are computed from token pricing, not Stripe
+    return summary
