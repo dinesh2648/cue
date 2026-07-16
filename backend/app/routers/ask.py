@@ -131,6 +131,20 @@ def _doc_catalog(db: Session) -> list[dict]:
 
 
 async def _ask_events(db: Session, user: User, body: AskRequest):
+    """Ask turn as an event stream, with all its LLM calls bucketed under the "ask" cost line.
+
+    Every call this turn makes (triage + fast polish + deep answer + envelope) is attributed to
+    the "ask" call_type via call_type_scope, so Ask spend shows separately from live-meeting spend
+    on the /costs dashboard. Both the blocking and SSE endpoints iterate this wrapper, so the scope
+    covers the inner generator's calls regardless of how it's consumed."""
+    from ..observability.usage import call_type_scope
+
+    with call_type_scope("ask"):
+        async for ev in _ask_events_inner(db, user, body):
+            yield ev
+
+
+async def _ask_events_inner(db: Session, user: User, body: AskRequest):
     """Run one Ask turn as an async event stream: 'stage' progress events, then a final 'answer'.
 
     The blocking endpoint consumes this and returns just the answer; the SSE endpoint forwards

@@ -12,6 +12,8 @@ picked up by create_all / Alembic exactly like any other table.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +24,24 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..db import Base, SessionLocal
 
 log = logging.getLogger("copilot.usage")
+
+# When set (inside e.g. an "Ask Cue" request), every usage row recorded in that async context is
+# bucketed under this call_type instead of its granular one — so all the LLM calls one Ask makes
+# (triage + fast polish + deep answer + envelope) roll up into a single "ask" line, distinct from
+# live-meeting spend. Propagates across awaits within the request; reset on scope exit.
+_call_type_override: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "cue_call_type_override", default=None
+)
+
+
+@contextlib.contextmanager
+def call_type_scope(call_type: str):
+    """Bucket every LLM call recorded within this scope under `call_type` (e.g. "ask")."""
+    token = _call_type_override.set(call_type)
+    try:
+        yield
+    finally:
+        _call_type_override.reset(token)
 
 
 def _uuid() -> str:
@@ -111,6 +131,9 @@ def record_usage(
     `usage` may be an Anthropic/OpenAI usage object, a dict, or None. Missing org/user are derived
     from the meeting when possible."""
     try:
+        override = _call_type_override.get()
+        if override:
+            call_type = override  # e.g. all calls inside an Ask request → the "ask" bucket
         tok = normalize_usage(usage)
         if not any(tok.values()) and not tool_calls:
             return  # nothing to record (e.g. offline fallback, no API call happened)
