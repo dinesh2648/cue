@@ -23,6 +23,12 @@ CAPABILITIES: dict[str, tuple[bool, str, str]] = {
         True, "Answer feedback",
         "Rate or correct live answers; your corrections steer the copilot's future answers.",
     ),
+    "auto_prep": (
+        False, "Auto-generate prep notes",
+        "Research and prepare a briefing automatically before each upcoming meeting, so it's "
+        "ready the moment you open it. Off by default — turning this on makes extra AI calls "
+        "ahead of every meeting. You can still generate prep on demand when you open a meeting.",
+    ),
 }
 
 DEFAULTS: dict[str, bool] = {k: v[0] for k, v in CAPABILITIES.items()}

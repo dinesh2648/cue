@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
+from . import capabilities
 from .config import settings
 from .connectors import manager as conn_manager
 from .db import SessionLocal
@@ -191,7 +192,10 @@ async def _auto_prep(db) -> None:
     from . import prep_ops
 
     now = datetime.now(timezone.utc)
-    users = list(db.scalars(select(User).where(User.autopilot.is_(True))))
+    # Auto-prep is a standalone, opt-in per-user setting (the "auto_prep" capability, OFF by
+    # default) — independent of auto-join. Only users who explicitly enabled it get background
+    # briefs; everyone else generates prep on demand when they open a meeting.
+    users = [u for u in db.scalars(select(User)) if capabilities.enabled(u, "auto_prep")]
     for user in users:
         token = await conn_manager.get_access_token(db, user.id, "google_calendar")
         if not token or token.startswith("demo-"):
