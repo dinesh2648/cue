@@ -35,12 +35,13 @@ class Settings(BaseSettings):
     # model isn't handed (and re-billed for, every agentic turn) the full write+admin catalog.
     # Cuts the per-answer tool-definition prefix ~65-75%. Set false to hand over every tool again.
     mcp_tool_allowlist: bool = True
-    # Tune the per-provider allowlists without a code change. Maps a provider name
+    # Tune the per-provider allowlists without a code change. A JSON object mapping a provider name
     # (github / jira / hubspot / notion / …) to the exact tools to expose: a provider listed here
     # REPLACES its built-in list, an empty list [] leaves that provider unrestricted, and a new
-    # provider adds a list. Set via env as JSON, e.g.
-    #   MCP_TOOL_ALLOWLIST_OVERRIDES='{"hubspot": ["hubspot-search-objects", "hubspot-get-object"]}'
-    mcp_tool_allowlist_overrides: dict[str, list[str]] = {}
+    # provider adds a list. e.g. MCP_TOOL_ALLOWLIST_OVERRIDES='{"hubspot": ["hubspot-search-objects"]}'.
+    # Kept as a plain string (parsed defensively in agent/mcp_tools) so an empty or malformed value
+    # from the compose env passthrough falls back to "no overrides" instead of crashing startup.
+    mcp_tool_allowlist_overrides: str = ""
     # Layer-1 triage model (fast/cheap): decides if a turn needs an answer before the
     # deep agent runs. Falls back to the regex detector when no Anthropic key is set.
     triage_model: str = "claude-haiku-4-5-20251001"

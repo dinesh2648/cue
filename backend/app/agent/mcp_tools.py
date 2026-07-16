@@ -20,7 +20,31 @@ leaves that provider unrestricted, and a new provider (e.g. hubspot/notion once 
 """
 from __future__ import annotations
 
+import json
+import logging
+
 from ..config import settings
+
+log = logging.getLogger("copilot.mcp_tools")
+
+
+def _overrides() -> dict[str, list[str]]:
+    """Parse settings.mcp_tool_allowlist_overrides (JSON) defensively.
+
+    Empty / whitespace / malformed → {} (never raises), so a bad env value degrades to "no
+    overrides" instead of taking the backend down at startup.
+    """
+    raw = (settings.mcp_tool_allowlist_overrides or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object")
+        return {str(k).lower(): list(v or []) for k, v in data.items()}
+    except (ValueError, TypeError) as exc:  # malformed JSON / wrong shape
+        log.warning("ignoring invalid MCP_TOOL_ALLOWLIST_OVERRIDES: %s", exc)
+        return {}
 
 # Read/search tools only — the live-answer agent never writes.
 _READ_TOOLS: dict[str, list[str]] = {
@@ -66,8 +90,7 @@ def effective_allowlist() -> dict[str, list[str]]:
     empty list leaves it unrestricted. Keys are matched case-insensitively.
     """
     merged: dict[str, list[str]] = {k: list(v) for k, v in _READ_TOOLS.items()}
-    for provider, tools in (settings.mcp_tool_allowlist_overrides or {}).items():
-        merged[str(provider).lower()] = list(tools or [])
+    merged.update(_overrides())
     return merged
 
 
