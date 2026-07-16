@@ -109,10 +109,16 @@ async def run_turn(
     except ImportError:  # pragma: no cover
         return None
 
-    servers_payload = [
-        {"type": "url", "url": s["url"], "name": s["name"], "authorization_token": s["token"]}
-        for s in mcp_servers
-    ]
+    # Cap each server to its read/search tools (via tool_configuration) so the model isn't handed
+    # — and re-billed for, every agentic turn — the full write+admin catalog it never uses to answer.
+    from . import mcp_tools
+    servers_payload = []
+    for s in mcp_servers:
+        entry: dict = {"type": "url", "url": s["url"], "name": s["name"], "authorization_token": s["token"]}
+        cfg = mcp_tools.tool_config_for(s)
+        if cfg:
+            entry["tool_configuration"] = cfg
+        servers_payload.append(entry)
     connected = ", ".join(sorted({s.get("name", "") for s in mcp_servers if s.get("name")}))
 
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)

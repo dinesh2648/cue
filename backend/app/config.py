@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     # Agent engine: "auto" picks messages_mcp when an Anthropic key is set, else offline.
     agent_engine: str = "auto"  # auto | messages_mcp | agent_sdk | offline
+    # Cap each connected MCP server to its read/search tools on the live-answer path, so the
+    # model isn't handed (and re-billed for, every agentic turn) the full write+admin catalog.
+    # Cuts the per-answer tool-definition prefix ~65-75%. Set false to hand over every tool again.
+    mcp_tool_allowlist: bool = True
     # Layer-1 triage model (fast/cheap): decides if a turn needs an answer before the
     # deep agent runs. Falls back to the regex detector when no Anthropic key is set.
     triage_model: str = "claude-haiku-4-5-20251001"
