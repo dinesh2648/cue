@@ -12,7 +12,11 @@ Keyed by the server's provider name (`conn.provider`). Custom (user-added) serve
 unrestricted — the user pointed Cue at those deliberately. Providers whose exact hosted tool
 names aren't yet confirmed (hubspot, notion) are intentionally omitted: a guessed-wrong name in
 an allowlist silently disables that tool, so we'd rather leave those unrestricted than risk
-breaking an answer. Add them here once their live tool names are confirmed (a one-line addition).
+breaking an answer.
+
+The lists below are defaults — tune them without a code change via settings.mcp_tool_allowlist_overrides
+(env `MCP_TOOL_ALLOWLIST_OVERRIDES`): a provider listed there replaces its default, an empty list
+leaves that provider unrestricted, and a new provider (e.g. hubspot/notion once confirmed) adds one.
 """
 from __future__ import annotations
 
@@ -55,15 +59,27 @@ _READ_TOOLS: dict[str, list[str]] = {
 }
 
 
+def effective_allowlist() -> dict[str, list[str]]:
+    """Built-in read/search lists merged with settings.mcp_tool_allowlist_overrides.
+
+    An override REPLACES a provider's list (retune or add a provider); mapping a provider to an
+    empty list leaves it unrestricted. Keys are matched case-insensitively.
+    """
+    merged: dict[str, list[str]] = {k: list(v) for k, v in _READ_TOOLS.items()}
+    for provider, tools in (settings.mcp_tool_allowlist_overrides or {}).items():
+        merged[str(provider).lower()] = list(tools or [])
+    return merged
+
+
 def tool_config_for(server: dict) -> dict | None:
     """The `tool_configuration` for a server's MCP payload, or None to leave it unrestricted.
 
-    Restricts a known built-in provider to its read/search tools; returns None for custom
-    servers, unlisted providers, or when the allowlist is disabled (settings.mcp_tool_allowlist).
+    Restricts a provider to its (possibly overridden) read/search tools; returns None for custom
+    servers, unlisted providers, providers overridden to [], or when the allowlist is disabled.
     """
     if not settings.mcp_tool_allowlist or server.get("custom"):
         return None
-    allowed = _READ_TOOLS.get(str(server.get("name", "")).lower())
+    allowed = effective_allowlist().get(str(server.get("name", "")).lower())
     if not allowed:
         return None
     return {"enabled": True, "allowed_tools": allowed}
