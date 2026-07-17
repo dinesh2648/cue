@@ -20,6 +20,17 @@ log = logging.getLogger("copilot.llm")
 _TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 
 
+def cached_system(system: str):
+    """Wrap a system prompt in a cache_control breakpoint so the stable tools+system prefix is
+    cached (read at ~0.1x on repeat calls within the 5-min TTL). Returns the plain string when
+    caching is off. Anthropic silently skips caching for prefixes below the model minimum, so this
+    is safe to apply everywhere — keep everything volatile (query, context, timestamps) in the
+    user message so the cached prefix stays byte-identical across calls."""
+    if not settings.prompt_cache or not system:
+        return system
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 async def llm_complete(
     system: str,
     user: str,
@@ -74,7 +85,7 @@ async def _anthropic(system: str, user: str, max_tokens: int, temperature: float
                 "model": settings.anthropic_model,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system,
+                "system": cached_system(system),
                 "messages": [{"role": "user", "content": user}],
             },
         )

@@ -152,10 +152,14 @@ async def run_turn(
         system = _system(persona)
         if profile_context:
             system += "\n\n" + profile_context
+        # Cache the stable system (+ the MCP tool block that renders before it) so it's read at
+        # ~0.1x across the agentic loop and across repeat questions in a meeting. Everything
+        # volatile (query, meeting state, comms) lives in the user message, so the prefix is stable.
+        from ..integrations.llm import cached_system
         kwargs: dict = {
             "model": settings.anthropic_model,
             "max_tokens": 600,
-            "system": system,
+            "system": cached_system(system),
             "messages": [{"role": "user", "content": user_msg}],
         }
         if servers_payload:

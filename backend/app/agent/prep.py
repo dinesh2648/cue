@@ -390,12 +390,14 @@ async def _mcp_brief(ctx: dict, persona: str, servers: list[dict], user_id: str 
     # Hard timeout so a slow/hung remote MCP server can't make prep hang for minutes (which left the
     # brief stuck "generating…" and the client polling endlessly). On timeout we return None and fall
     # back to the fast compose brief — prep always finishes in bounded time.
+    from ..integrations.llm import cached_system
     client = AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=75.0)
     try:
         resp = await client.beta.messages.create(
             # 2500 comfortably fits a tight 6-section skimmable brief (~1800 words) without ever
             # truncating a section, while capping the occasional runaway (was 4000).
-            model=settings.anthropic_model, max_tokens=2500, system=system,
+            # cached_system caches the stable system (+ MCP tool block) across the agentic loop.
+            model=settings.anthropic_model, max_tokens=2500, system=cached_system(system),
             messages=[{"role": "user", "content": user_msg}],
             mcp_servers=payload, betas=[_MCP_BETA],
         )

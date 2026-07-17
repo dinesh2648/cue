@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # Layer-1 triage model (fast/cheap): decides if a turn needs an answer before the
     # deep agent runs. Falls back to the regex detector when no Anthropic key is set.
     triage_model: str = "claude-haiku-4-5-20251001"
+    # Prompt caching: put a cache_control breakpoint on the (stable) system prefix so the
+    # tools+system block is read at ~0.1x on repeat calls within the 5-min TTL — big win on the
+    # deep-answer path (re-sent every question in a meeting + every agentic turn). Safe: Anthropic
+    # silently skips caching for prefixes below the model minimum. Set false to disable everywhere.
+    prompt_cache: bool = True
 
     # Vector DB
     qdrant_url: str | None = None
