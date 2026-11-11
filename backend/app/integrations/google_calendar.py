@@ -120,3 +120,24 @@ async def list_upcoming(token: str, max_results: int = 8, days: int = 30) -> lis
         data = resp.json()
 
     return [_normalize(ev) for ev in data.get("items", []) if ev.get("status") != "cancelled"]
+
+
+async def list_recent(token: str, hours: int = 12, max_results: int = 25) -> list[dict]:
+    """Recently-ENDED events on the user's primary calendar (window [now-hours, now]), soonest-first.
+
+    Used by the post-meeting Meet transcript ingest to find calls that have finished. Raises
+    httpx.HTTPStatusError on API errors (caller handles).
+    """
+    now = datetime.now(timezone.utc)
+    params = {
+        "timeMin": _iso_z(now - timedelta(hours=hours)),
+        "timeMax": _iso_z(now),
+        "maxResults": str(max_results),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+    }
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(_EVENTS_URL, params=params, headers={"Authorization": f"Bearer {token}"})
+        resp.raise_for_status()
+        data = resp.json()
+    return [_normalize(ev) for ev in data.get("items", []) if ev.get("status") != "cancelled"]

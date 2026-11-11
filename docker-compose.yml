@@ -30,6 +30,10 @@ services:
       MCP_TOOL_ALLOWLIST_OVERRIDES: ${MCP_TOOL_ALLOWLIST_OVERRIDES:-}
       # Prompt caching: cache the stable system(+tools) prefix so it's re-read at ~0.1x (default on).
       PROMPT_CACHE: ${PROMPT_CACHE:-true}
+      # Post-meeting Google Meet recap without Recall (needs the meetings.space.readonly scope +
+      # Meet transcription turned on for the call). Off by default.
+      MEET_TRANSCRIPT_INGEST: ${MEET_TRANSCRIPT_INGEST:-false}
+      MEET_INGEST_LOOKBACK_HOURS: ${MEET_INGEST_LOOKBACK_HOURS:-12}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:-}   # stable session JWT signing across restarts
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}

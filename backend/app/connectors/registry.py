@@ -133,6 +133,8 @@ CONNECTORS: dict[str, Connector] = {
             token_url="https://oauth2.googleapis.com/token",
             scopes=[
                 "https://www.googleapis.com/auth/calendar.events",
+                # Read past Meet conference records + transcripts (post-meeting recap without Recall).
+                "https://www.googleapis.com/auth/meetings.space.readonly",
                 "openid",
                 "email",
             ],

@@ -277,6 +277,9 @@ async def _tick() -> None:
         await _auto_join(db)
         await _auto_prep(db)
         await _auto_finalize(db)
+        # Post-meeting Meet recap without Recall (no-op unless MEET_TRANSCRIPT_INGEST is on).
+        from .meet_ingest import ingest_ended_meet_meetings
+        await ingest_ended_meet_meetings(db)
     finally:
         db.close()
 

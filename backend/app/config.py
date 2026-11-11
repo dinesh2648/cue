@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # Layer-1 triage model (fast/cheap): decides if a turn needs an answer before the
     # deep agent runs. Falls back to the regex detector when no Anthropic key is set.
     triage_model: str = "claude-haiku-4-5-20251001"
+    # Google Meet post-meeting recap WITHOUT Recall: pull the official Meet transcript (Workspace
+    # Meet REST API, reusing the Google Calendar OAuth + the meetings.space.readonly scope) after a
+    # Meet call ends, write it as transcript segments, and run the normal summary/scorecard recap.
+    # Off by default: it needs the added scope (users reconnect Google) AND Meet transcription turned
+    # on for the call. Lookback bounds how far back ended meetings are scanned each tick.
+    meet_transcript_ingest: bool = False
+    meet_ingest_lookback_hours: int = 12
     # Prompt caching: put a cache_control breakpoint on the (stable) system prefix so the
     # tools+system block is read at ~0.1x on repeat calls within the 5-min TTL — big win on the
     # deep-answer path (re-sent every question in a meeting + every agentic turn). Safe: Anthropic
