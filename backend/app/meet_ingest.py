@@ -6,9 +6,9 @@ then run the SAME recap the Recall path runs (`finalize_meeting` → summary, ac
 follow-up email, scorecard). The whole copilot downstream is provider-agnostic — it only needs
 segments — so this is an ingestion adapter, not a rewrite.
 
-Gated by settings.meet_transcript_ingest and, per user, by autopilot being ON (the "auto-handle my
-meetings" switch) + a connected Google Calendar. There are NO live in-call answers on this path —
-the Meet REST API is strictly post-meeting.
+Gated globally by settings.meet_transcript_ingest, and runs for every user with a connected Google
+Calendar (independent of the autopilot/Recall auto-join switch). There are NO live in-call answers
+on this path — the Meet REST API is strictly post-meeting.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from .config import settings
 from .connectors import manager as conn_manager
 from .integrations import google_calendar, google_meet
 from .meetings_ops import finalize_meeting
-from .models import Meeting, TranscriptSegment, User
+from .models import ConnectorConnection, Meeting, TranscriptSegment, User
 from .packs.registry import pack_for_team
 
 log = logging.getLogger("copilot.meet_ingest")
@@ -53,7 +53,15 @@ async def ingest_ended_meet_meetings(db: Session) -> None:
     """One poll pass: recap recently-ended Meet calls that have a ready transcript. Best-effort."""
     if not google_meet.enabled():
         return
-    users = list(db.scalars(select(User).where(User.autopilot.is_(True))))
+    # Every user with a connected Google Calendar (autopilot not required — recaps are independent
+    # of the Recall auto-join switch). Scoped to the connection so we don't scan the whole user table.
+    gconn_user_ids = db.scalars(
+        select(ConnectorConnection.user_id).where(
+            ConnectorConnection.provider == "google_calendar",
+            ConnectorConnection.status == "connected",
+        ).distinct()
+    ).all()
+    users = list(db.scalars(select(User).where(User.id.in_(gconn_user_ids)))) if gconn_user_ids else []
     for user in users:
         token = await conn_manager.get_access_token(db, user.id, "google_calendar")
         if not token or token.startswith("demo-"):
